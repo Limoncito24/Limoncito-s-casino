@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 export default function SignInPage() {
+  const router = useRouter();
+
   const [mode, setMode] = useState<"login" | "create">("create");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -67,7 +70,8 @@ export default function SignInPage() {
         return;
       }
 
-      setMessage("Account created successfully.");
+      // ✅ REDIRECT AFTER SIGNUP
+      router.push("/practice");
     } catch (err) {
       console.error(err);
       setMessage("Something crashed during signup.");
@@ -106,7 +110,8 @@ export default function SignInPage() {
         return;
       }
 
-      setMessage("Login worked.");
+      // ✅ REDIRECT AFTER LOGIN
+      router.push("/practice");
     } catch (err) {
       console.error(err);
       setMessage("Something crashed during login.");
@@ -118,8 +123,8 @@ export default function SignInPage() {
   return (
     <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
       <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
-        <h1 className="text-2xl font-bold text-center text-red-400">
-          NEW SIGNIN PAGE V2
+        <h1 className="text-2xl font-bold text-center">
+          Sign In
         </h1>
 
         <div className="flex gap-2">
