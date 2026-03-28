@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../lib/supabase";
 
 type Card = {
   rank: string;
@@ -122,48 +123,114 @@ export default function PracticePage() {
   const [busterBet, setBusterBet] = useState(0);
 
   const [stats, setStats] = useState<Stats>(DEFAULT_STATS);
+
+  const [userId, setUserId] = useState<string | null>(null);
   const [statsLoaded, setStatsLoaded] = useState(false);
 
   const lifetimeNet = useMemo(() => bankroll - STARTING_BANKROLL, [bankroll]);
 
   useEffect(() => {
-    const savedStats = localStorage.getItem("limoncitos_practice_stats");
-    const savedBankroll = localStorage.getItem("limoncitos_practice_bankroll");
+    async function loadUserStats() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (savedStats) {
-      try {
-        setStats(JSON.parse(savedStats));
-      } catch {
-        setStats(DEFAULT_STATS);
+      if (!user) {
+        setMessage("You need to sign in first.");
+        setStatsLoaded(true);
+        return;
       }
+
+      setUserId(user.id);
+
+      const { data, error } = await supabase
+        .from("player_stats")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error || !data) {
+        setMessage("Could not load your stats.");
+        setStatsLoaded(true);
+        return;
+      }
+
+      setBankroll(data.bankroll ?? STARTING_BANKROLL);
+      setStats({
+        handsPlayed: data.hands_played ?? 0,
+        wins: data.wins ?? 0,
+        losses: data.losses ?? 0,
+        pushes: data.pushes ?? 0,
+        blackjacks: data.blackjacks ?? 0,
+        busts: data.busts ?? 0,
+        splits: data.splits ?? 0,
+        doubles: data.doubles ?? 0,
+        surrenders: data.surrenders ?? 0,
+        busterWins: data.buster_wins ?? 0,
+      });
+
+      setStatsLoaded(true);
     }
 
-    if (savedBankroll) {
-      const parsed = Number(savedBankroll);
-      if (!Number.isNaN(parsed)) {
-        setBankroll(parsed);
-      }
-    }
-
-    setStatsLoaded(true);
+    loadUserStats();
   }, []);
 
   useEffect(() => {
-    if (!statsLoaded) return;
-    localStorage.setItem("limoncitos_practice_stats", JSON.stringify(stats));
-  }, [stats, statsLoaded]);
+    async function saveStatsToSupabase() {
+      if (!statsLoaded || !userId) return;
 
-  useEffect(() => {
-    if (!statsLoaded) return;
-    localStorage.setItem("limoncitos_practice_bankroll", String(bankroll));
-  }, [bankroll, statsLoaded]);
+      const { error } = await supabase
+        .from("player_stats")
+        .update({
+          bankroll,
+          hands_played: stats.handsPlayed,
+          wins: stats.wins,
+          losses: stats.losses,
+          pushes: stats.pushes,
+          blackjacks: stats.blackjacks,
+          busts: stats.busts,
+          splits: stats.splits,
+          doubles: stats.doubles,
+          surrenders: stats.surrenders,
+          buster_wins: stats.busterWins,
+        })
+        .eq("user_id", userId);
 
-  function resetPracticeData() {
+      if (error) {
+        console.error("SAVE STATS ERROR:", error);
+      }
+    }
+
+    saveStatsToSupabase();
+  }, [bankroll, stats, statsLoaded, userId]);
+
+  async function resetPracticeData() {
     setStats(DEFAULT_STATS);
     setBankroll(STARTING_BANKROLL);
-    localStorage.removeItem("limoncitos_practice_stats");
-    localStorage.removeItem("limoncitos_practice_bankroll");
     setMessage("Practice stats and bankroll reset.");
+
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from("player_stats")
+      .update({
+        bankroll: STARTING_BANKROLL,
+        hands_played: 0,
+        wins: 0,
+        losses: 0,
+        pushes: 0,
+        blackjacks: 0,
+        busts: 0,
+        splits: 0,
+        doubles: 0,
+        surrenders: 0,
+        buster_wins: 0,
+      })
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("RESET ERROR:", error);
+    }
   }
 
   function drawFromDeck(currentDeck: Card[]) {
@@ -675,7 +742,7 @@ export default function PracticePage() {
         <div className="flex gap-2 flex-wrap mt-6 mb-6">
           <button
             onClick={deal}
-            disabled={roundActive}
+            disabled={roundActive || !statsLoaded}
             className="bg-green-600 disabled:bg-gray-600 px-4 py-2 rounded"
           >
             Deal

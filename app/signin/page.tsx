@@ -1,112 +1,131 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-
-type Stats = {
-  handsPlayed: number;
-  wins: number;
-  losses: number;
-  pushes: number;
-  blackjacks: number;
-  busts: number;
-  splits: number;
-  doubles: number;
-  surrenders: number;
-  busterWins: number;
-};
-
-type Account = {
-  username: string;
-  password: string;
-  bankroll: number;
-  stats: Stats;
-};
-
-const DEFAULT_STATS: Stats = {
-  handsPlayed: 0,
-  wins: 0,
-  losses: 0,
-  pushes: 0,
-  blackjacks: 0,
-  busts: 0,
-  splits: 0,
-  doubles: 0,
-  surrenders: 0,
-  busterWins: 0,
-};
+import { supabase } from "../../lib/supabase";
 
 export default function SignInPage() {
-  const router = useRouter();
+  const [mode, setMode] = useState<"login" | "create">("create");
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"login" | "create">("login");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit() {
+  async function handleCreateAccount() {
+    if (loading) return;
+
+    const cleanEmail = email.trim().toLowerCase();
     const cleanUsername = username.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    if (!cleanUsername || !cleanPassword) {
-      setMessage("Enter a username and password.");
+    if (!cleanUsername || !cleanEmail || !cleanPassword) {
+      setMessage("Enter username, email, and password.");
       return;
     }
 
-    const raw = localStorage.getItem("limoncitos_accounts");
-    const accounts: Account[] = raw ? JSON.parse(raw) : [];
+    try {
+      setLoading(true);
+      setMessage("Creating account...");
 
-    if (mode === "create") {
-      const exists = accounts.find((a) => a.username === cleanUsername);
-      if (exists) {
-        setMessage("That username already exists.");
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      if (error) {
+        setMessage("Signup error: " + error.message);
         return;
       }
 
-      const newAccount: Account = {
+      if (!data.user) {
+        setMessage("Signup failed: no user returned.");
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("player_stats").upsert({
+        user_id: data.user.id,
         username: cleanUsername,
-        password: cleanPassword,
         bankroll: 1000,
-        stats: DEFAULT_STATS,
-      };
+        hands_played: 0,
+        wins: 0,
+        losses: 0,
+        pushes: 0,
+        blackjacks: 0,
+        busts: 0,
+        splits: 0,
+        doubles: 0,
+        surrenders: 0,
+        buster_wins: 0,
+        banned: false,
+        is_admin: false,
+      });
 
-      const updated = [...accounts, newAccount];
-      localStorage.setItem("limoncitos_accounts", JSON.stringify(updated));
-      localStorage.setItem("limoncitos_current_user", cleanUsername);
+      if (insertError) {
+        setMessage("Stats row error: " + insertError.message);
+        return;
+      }
 
-      setMessage("Account created. Redirecting...");
-      router.push("/practice");
+      setMessage("Account created successfully.");
+    } catch (err) {
+      console.error(err);
+      setMessage("Something crashed during signup.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLogin() {
+    if (loading) return;
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
+      setMessage("Enter email and password.");
       return;
     }
 
-    const found = accounts.find(
-      (a) => a.username === cleanUsername && a.password === cleanPassword
-    );
+    try {
+      setLoading(true);
+      setMessage("Logging in...");
 
-    if (!found) {
-      setMessage("Invalid username or password.");
-      return;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      if (error) {
+        setMessage("Login error: " + error.message);
+        return;
+      }
+
+      if (!data.user) {
+        setMessage("Login failed.");
+        return;
+      }
+
+      setMessage("Login worked.");
+    } catch (err) {
+      console.error(err);
+      setMessage("Something crashed during login.");
+    } finally {
+      setLoading(false);
     }
-
-    localStorage.setItem("limoncitos_current_user", cleanUsername);
-    setMessage("Signed in. Redirecting...");
-    router.push("/practice");
   }
 
   return (
     <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
-      <div className="w-full max-w-md bg-black/20 rounded-2xl p-6">
-        <div className="flex justify-between items-center mb-6">
-          <Link href="/" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg">
-            ← Main Menu
-          </Link>
-          <h1 className="text-2xl font-bold">Sign In</h1>
-        </div>
+      <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
+        <h1 className="text-2xl font-bold text-center">NEW SIGNIN PAGE</h1>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2">
           <button
-            onClick={() => setMode("login")}
-            className={`px-4 py-2 rounded-lg font-semibold ${
+            type="button"
+            onClick={() => {
+              setMode("login");
+              setMessage("");
+            }}
+            className={`px-4 py-2 rounded-lg ${
               mode === "login" ? "bg-yellow-500 text-black" : "bg-white/10"
             }`}
           >
@@ -114,44 +133,65 @@ export default function SignInPage() {
           </button>
 
           <button
-            onClick={() => setMode("create")}
-            className={`px-4 py-2 rounded-lg font-semibold ${
+            type="button"
+            onClick={() => {
+              setMode("create");
+              setMessage("");
+            }}
+            className={`px-4 py-2 rounded-lg ${
               mode === "create" ? "bg-yellow-500 text-black" : "bg-white/10"
             }`}
           >
-            Create Account
+            Create
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <p className="text-sm text-green-200 mb-1">Username</p>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full text-black p-3 rounded-lg"
-            />
-          </div>
+        {mode === "create" && (
+          <input
+            placeholder="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="w-full p-3 rounded-lg text-black bg-white"
+          />
+        )}
 
-          <div>
-            <p className="text-sm text-green-200 mb-1">Password</p>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full text-black p-3 rounded-lg"
-            />
-          </div>
+        <input
+          placeholder="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full p-3 rounded-lg text-black bg-white"
+        />
 
+        <input
+          placeholder="password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full p-3 rounded-lg text-black bg-white"
+        />
+
+        {mode === "create" ? (
           <button
-            onClick={handleSubmit}
-            className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-lg font-semibold"
+            type="button"
+            onClick={handleCreateAccount}
+            disabled={loading}
+            className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
           >
-            {mode === "login" ? "Login" : "Create Account"}
+            {loading ? "Creating..." : "Create Account"}
           </button>
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+          >
+            {loading ? "Logging in..." : "Login"}
+          </button>
+        )}
 
-        <p className="mt-4 text-center text-green-100">{message}</p>
+        <p className="text-center text-sm text-green-100 min-h-[24px]">{message}</p>
       </div>
     </main>
   );
