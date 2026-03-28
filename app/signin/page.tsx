@@ -42,23 +42,25 @@ export default function SignInPage() {
         return;
       }
 
-      const { error: insertError } = await supabase.from("player_stats").upsert({
-        user_id: data.user.id,
-        username: cleanUsername,
-        bankroll: 1000,
-        hands_played: 0,
-        wins: 0,
-        losses: 0,
-        pushes: 0,
-        blackjacks: 0,
-        busts: 0,
-        splits: 0,
-        doubles: 0,
-        surrenders: 0,
-        buster_wins: 0,
-        banned: false,
-        is_admin: false,
-      });
+      const { error: insertError } = await supabase
+        .from("player_stats")
+        .upsert({
+          user_id: data.user.id,
+          username: cleanUsername,
+          bankroll: 1000,
+          hands_played: 0,
+          wins: 0,
+          losses: 0,
+          pushes: 0,
+          blackjacks: 0,
+          busts: 0,
+          splits: 0,
+          doubles: 0,
+          surrenders: 0,
+          buster_wins: 0,
+          banned: false,
+          is_admin: false,
+        });
 
       if (insertError) {
         setMessage("Stats row error: " + insertError.message);
@@ -116,7 +118,9 @@ export default function SignInPage() {
   return (
     <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
       <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
-        <h1 className="text-2xl font-bold text-center">NEW SIGNIN PAGE</h1>
+        <h1 className="text-2xl font-bold text-center text-red-400">
+          NEW SIGNIN PAGE V2
+        </h1>
 
         <div className="flex gap-2">
           <button
@@ -126,7 +130,9 @@ export default function SignInPage() {
               setMessage("");
             }}
             className={`px-4 py-2 rounded-lg ${
-              mode === "login" ? "bg-yellow-500 text-black" : "bg-white/10"
+              mode === "login"
+                ? "bg-yellow-500 text-black"
+                : "bg-white/10"
             }`}
           >
             Login
@@ -139,7 +145,9 @@ export default function SignInPage() {
               setMessage("");
             }}
             className={`px-4 py-2 rounded-lg ${
-              mode === "create" ? "bg-yellow-500 text-black" : "bg-white/10"
+              mode === "create"
+                ? "bg-yellow-500 text-black"
+                : "bg-white/10"
             }`}
           >
             Create
@@ -191,7 +199,9 @@ export default function SignInPage() {
           </button>
         )}
 
-        <p className="text-center text-sm text-green-100 min-h-[24px]">{message}</p>
+        <p className="text-center text-sm text-green-100 min-h-[24px]">
+          {message}
+        </p>
       </div>
     </main>
   );
