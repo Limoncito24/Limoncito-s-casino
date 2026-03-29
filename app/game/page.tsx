@@ -1009,6 +1009,10 @@ export default function GamePage() {
               const isCurrentTurn =
                 index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
 
+              const canEditBets =
+                !gameState.betsLocked &&
+                player.username.trim().toLowerCase() === currentUsername.trim().toLowerCase();
+
               return (
                 <div
                   key={player.id}
@@ -1051,35 +1055,15 @@ export default function GamePage() {
                                 [player.username]: false,
                               }));
                             }}
-                            disabled={player.username !== currentUsername}
+                            disabled={!canEditBets}
                             className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                           >
                             -5
                           </button>
 
-                          <input
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={betInputs[player.username] ?? 100}
-                            onChange={(e) => {
-                              const value = Math.max(
-                                1,
-                                Number(e.target.value.replace(/\D/g, "") || 1)
-                              );
-
-                              setBetInputs((prev) => ({
-                                ...prev,
-                                [player.username]: value,
-                              }));
-
-                              setConfirmedBets((prev) => ({
-                                ...prev,
-                                [player.username]: false,
-                              }));
-                            }}
-                            disabled={player.username !== currentUsername}
-                            className="w-full rounded-lg px-3 py-3 text-black text-lg"
-                          />
+                          <div className="w-full rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
+                            ${betInputs[player.username] ?? 100}
+                          </div>
 
                           <button
                             type="button"
@@ -1093,7 +1077,7 @@ export default function GamePage() {
                                 [player.username]: false,
                               }));
                             }}
-                            disabled={player.username !== currentUsername}
+                            disabled={!canEditBets}
                             className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                           >
                             +5
@@ -1116,7 +1100,7 @@ export default function GamePage() {
                                 [player.username]: false,
                               }));
                             }}
-                            disabled={player.username !== currentUsername}
+                            disabled={!canEditBets}
                             className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
                               (busterInputs[player.username] ?? 0) === 0
                                 ? "bg-gray-300 text-black"
@@ -1138,7 +1122,7 @@ export default function GamePage() {
                                 [player.username]: false,
                               }));
                             }}
-                            disabled={player.username !== currentUsername}
+                            disabled={!canEditBets}
                             className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
                               (busterInputs[player.username] ?? 0) === 5
                                 ? "bg-pink-400 text-black"
@@ -1153,7 +1137,7 @@ export default function GamePage() {
                       <button
                         type="button"
                         onClick={() => handleConfirmBet(player.username)}
-                        disabled={player.username !== currentUsername}
+                        disabled={!canEditBets}
                         className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 ${
                           confirmedBets[player.username]
                             ? "bg-green-400 text-black"
@@ -1167,8 +1151,6 @@ export default function GamePage() {
                         Selected: main ${betInputs[player.username] ?? 100} · buster $
                         {busterInputs[player.username] ?? 0}
                       </p>
-
-                      <p className="text-xs text-green-300">Bets are open for the next round</p>
                     </div>
                   )}
 
