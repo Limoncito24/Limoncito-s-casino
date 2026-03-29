@@ -175,6 +175,7 @@ export default function GamePage() {
   const [bankrolls, setBankrolls] = useState<Record<string, number>>({});
   const [betInputs, setBetInputs] = useState<Record<string, number>>({});
   const [busterInputs, setBusterInputs] = useState<Record<string, number>>({});
+  const [confirmedBets, setConfirmedBets] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void loadGameShell();
@@ -281,12 +282,14 @@ export default function GamePage() {
     const bankrollMap: Record<string, number> = {};
     const betMap: Record<string, number> = {};
     const busterMap: Record<string, number> = {};
+    const confirmedMap: Record<string, boolean> = {};
 
     stats.forEach((s) => {
       const username = s.username || "unknown player";
       bankrollMap[username] = s.bankroll ?? 1000;
       betMap[username] = 100;
       busterMap[username] = 0;
+      confirmedMap[username] = false;
     });
 
     setCurrentUsername(me?.username || "unknown player");
@@ -294,6 +297,7 @@ export default function GamePage() {
     setBankrolls(bankrollMap);
     setBetInputs(betMap);
     setBusterInputs(busterMap);
+    setConfirmedBets(confirmedMap);
     setMessage("Table loaded.");
   }
 
@@ -330,6 +334,19 @@ export default function GamePage() {
     }
 
     return startIndex;
+  }
+
+  function handleConfirmBet(username: string) {
+    setConfirmedBets((prev) => ({
+      ...prev,
+      [username]: true,
+    }));
+
+    setMessage(
+      `${username} confirmed main bet $${betInputs[username] ?? 100} ${
+        (busterInputs[username] ?? 0) === 5 ? "with $5 buster" : "with no buster"
+      }`
+    );
   }
 
   async function updateLobbyGame(
@@ -499,6 +516,14 @@ export default function GamePage() {
       game_state: updatedState,
     });
 
+    setConfirmedBets((prev) => {
+      const next = { ...prev };
+      players.forEach((player) => {
+        next[player.username] = false;
+      });
+      return next;
+    });
+
     if (error) {
       return {
         updatedState,
@@ -536,6 +561,13 @@ export default function GamePage() {
 
     if (players.length === 0) {
       setMessage("No players found.");
+      return;
+    }
+
+    const allConfirmed = players.every((player) => confirmedBets[player.username]);
+
+    if (!allConfirmed) {
+      setMessage("All players need to confirm their bets first.");
       return;
     }
 
@@ -1018,12 +1050,16 @@ export default function GamePage() {
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
                               setBetInputs((prev) => ({
                                 ...prev,
                                 [player.username]: Math.max(1, (prev[player.username] ?? 100) - 5),
-                              }))
-                            }
+                              }));
+                              setConfirmedBets((prev) => ({
+                                ...prev,
+                                [player.username]: false,
+                              }));
+                            }}
                             disabled={player.username !== currentUsername}
                             className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                           >
@@ -1034,27 +1070,38 @@ export default function GamePage() {
                             inputMode="numeric"
                             pattern="[0-9]*"
                             value={betInputs[player.username] ?? 100}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const value = Math.max(
+                                1,
+                                Number(e.target.value.replace(/\D/g, "") || 1)
+                              );
+
                               setBetInputs((prev) => ({
                                 ...prev,
-                                [player.username]: Math.max(
-                                  1,
-                                  Number(e.target.value.replace(/\D/g, "") || 1)
-                                ),
-                              }))
-                            }
+                                [player.username]: value,
+                              }));
+
+                              setConfirmedBets((prev) => ({
+                                ...prev,
+                                [player.username]: false,
+                              }));
+                            }}
                             disabled={player.username !== currentUsername}
                             className="w-full rounded-lg px-3 py-3 text-black text-lg"
                           />
 
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
                               setBetInputs((prev) => ({
                                 ...prev,
                                 [player.username]: (prev[player.username] ?? 100) + 5,
-                              }))
-                            }
+                              }));
+                              setConfirmedBets((prev) => ({
+                                ...prev,
+                                [player.username]: false,
+                              }));
+                            }}
                             disabled={player.username !== currentUsername}
                             className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                           >
@@ -1068,12 +1115,16 @@ export default function GamePage() {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
                               setBusterInputs((prev) => ({
                                 ...prev,
                                 [player.username]: 0,
-                              }))
-                            }
+                              }));
+                              setConfirmedBets((prev) => ({
+                                ...prev,
+                                [player.username]: false,
+                              }));
+                            }}
                             disabled={player.username !== currentUsername}
                             className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
                               (busterInputs[player.username] ?? 0) === 0
@@ -1086,12 +1137,16 @@ export default function GamePage() {
 
                           <button
                             type="button"
-                            onClick={() =>
+                            onClick={() => {
                               setBusterInputs((prev) => ({
                                 ...prev,
                                 [player.username]: 5,
-                              }))
-                            }
+                              }));
+                              setConfirmedBets((prev) => ({
+                                ...prev,
+                                [player.username]: false,
+                              }));
+                            }}
                             disabled={player.username !== currentUsername}
                             className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
                               (busterInputs[player.username] ?? 0) === 5
@@ -1103,6 +1158,24 @@ export default function GamePage() {
                           </button>
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmBet(player.username)}
+                        disabled={player.username !== currentUsername}
+                        className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                          confirmedBets[player.username]
+                            ? "bg-green-400 text-black"
+                            : "bg-yellow-400 text-black"
+                        }`}
+                      >
+                        {confirmedBets[player.username] ? "Bet Confirmed" : "Confirm Bet"}
+                      </button>
+
+                      <p className="text-xs text-white/80">
+                        Selected: main ${betInputs[player.username] ?? 100} · buster $
+                        {busterInputs[player.username] ?? 0}
+                      </p>
 
                       <p className="text-xs text-green-300">Bets are open for the next round</p>
                     </div>
