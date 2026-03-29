@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 type LobbyPlayer = {
@@ -8,16 +9,37 @@ type LobbyPlayer = {
   username: string;
 };
 
-type GameState = Record<string, number>;
+type PlayerState = {
+  total: number;
+  stood: boolean;
+  busted: boolean;
+};
+
+type GameState = {
+  players: Record<string, PlayerState>;
+  dealerTotal: number;
+  roundStarted: boolean;
+  roundFinished: boolean;
+};
+
+const EMPTY_GAME_STATE: GameState = {
+  players: {},
+  dealerTotal: 0,
+  roundStarted: false,
+  roundFinished: false,
+};
 
 export default function GamePage() {
+  const router = useRouter();
+
   const [message, setMessage] = useState("Loading game...");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [currentLobbyId, setCurrentLobbyId] = useState<string | null>(null);
   const [currentLobbyCode, setCurrentLobbyCode] = useState("");
   const [isHost, setIsHost] = useState(false);
+  const [currentUsername, setCurrentUsername] = useState("");
   const [turnIndex, setTurnIndex] = useState(0);
-  const [gameState, setGameState] = useState<GameState>({});
+  const [gameState, setGameState] = useState<GameState>(EMPTY_GAME_STATE);
 
   useEffect(() => {
     loadGameShell();
@@ -36,15 +58,15 @@ export default function GamePage() {
       if (error || !data) return;
 
       setTurnIndex(data.turn_index ?? 0);
-      setGameState((data.game_state as GameState) || {});
+      setGameState((data.game_state as GameState) || EMPTY_GAME_STATE);
 
       if (!data.game_started) {
-        window.location.href = "/";
+        router.push("/lobby");
       }
-    }, 1500);
+    }, 1200);
 
     return () => clearInterval(interval);
-  }, [currentLobbyId]);
+  }, [currentLobbyId, router]);
 
   async function loadGameShell() {
     const {
@@ -87,7 +109,7 @@ export default function GamePage() {
     setCurrentLobbyCode(lobby.code);
     setIsHost(lobby.host_user_id === user.id);
     setTurnIndex(lobby.turn_index ?? 0);
-    setGameState((lobby.game_state as GameState) || {});
+    setGameState((lobby.game_state as GameState) || EMPTY_GAME_STATE);
 
     const { data: lobbyPlayers, error: playersError } = await supabase
       .from("lobby_players")
@@ -121,50 +143,136 @@ export default function GamePage() {
       };
     });
 
+    const me = stats.find((s) => s.user_id === user.id);
+    setCurrentUsername(me?.username || "unknown player");
+
     setPlayers(formattedPlayers);
-    setMessage("Game shell loaded.");
+    setMessage("Game loaded.");
   }
 
-  async function nextTurn() {
-    if (!currentLobbyId || players.length === 0) return;
+  function getNextActiveTurnIndex(
+    startIndex: number,
+    allPlayers: LobbyPlayer[],
+    state: GameState
+  ) {
+    if (allPlayers.length === 0) return 0;
 
+    for (let step = 1; step <= allPlayers.length; step++) {
+      const nextIndex = (startIndex + step) % allPlayers.length;
+      const username = allPlayers[nextIndex]?.username;
+      const playerState = state.players[username];
+
+      if (!playerState?.stood && !playerState?.busted) {
+        return nextIndex;
+      }
+    }
+
+    return startIndex;
+  }
+
+  function areAllPlayersDone(allPlayers: LobbyPlayer[], state: GameState) {
+    return allPlayers.every((player) => {
+      const p = state.players[player.username];
+      return p?.stood || p?.busted;
+    });
+  }
+
+  async function updateLobbyGame(
+    updates: Partial<{ turn_index: number; game_state: GameState; game_started: boolean }>
+  ) {
+    if (!currentLobbyId) return { error: new Error("No lobby id") };
+
+    return await supabase
+      .from("lobbies")
+      .update(updates)
+      .eq("id", currentLobbyId);
+  }
+
+  async function handleStartRound() {
     if (!isHost) {
-      setMessage("Only host can change turns.");
+      setMessage("Only host can start the round.");
       return;
     }
 
-    const nextIndex = (turnIndex + 1) % players.length;
+    const freshState: GameState = {
+      players: Object.fromEntries(
+        players.map((player) => [
+          player.username,
+          {
+            total: Math.floor(Math.random() * 10) + 2,
+            stood: false,
+            busted: false,
+          },
+        ])
+      ),
+      dealerTotal: Math.floor(Math.random() * 10) + 2,
+      roundStarted: true,
+      roundFinished: false,
+    };
 
-    const { error } = await supabase
-      .from("lobbies")
-      .update({ turn_index: nextIndex })
-      .eq("id", currentLobbyId);
+    const { error } = await updateLobbyGame({
+      game_state: freshState,
+      turn_index: 0,
+    });
 
     if (error) {
-      setMessage("Failed to update turn.");
+      setMessage("Failed to start round.");
       return;
     }
 
-    setTurnIndex(nextIndex);
+    setGameState(freshState);
+    setTurnIndex(0);
+    setMessage("Round started.");
   }
 
   async function handleHit() {
-    if (!currentLobbyId || players.length === 0) return;
+    if (!currentLobbyId || players.length === 0 || !gameState.roundStarted || gameState.roundFinished) {
+      return;
+    }
 
-    const currentPlayer = players[turnIndex]?.username;
-    if (!currentPlayer) return;
+    const currentTurnPlayer = players[turnIndex]?.username;
 
-    const newValue = Math.floor(Math.random() * 10) + 1;
+    if (currentUsername !== currentTurnPlayer) {
+      setMessage("Not your turn.");
+      return;
+    }
+
+    const existing = gameState.players[currentTurnPlayer] || {
+      total: 0,
+      stood: false,
+      busted: false,
+    };
+
+    const draw = Math.floor(Math.random() * 10) + 1;
+    const newTotal = existing.total + draw;
+    const busted = newTotal > 21;
 
     const updatedState: GameState = {
       ...gameState,
-      [currentPlayer]: (gameState[currentPlayer] || 0) + newValue,
+      players: {
+        ...gameState.players,
+        [currentTurnPlayer]: {
+          ...existing,
+          total: newTotal,
+          busted,
+        },
+      },
     };
 
-    const { error } = await supabase
-      .from("lobbies")
-      .update({ game_state: updatedState })
-      .eq("id", currentLobbyId);
+    let nextIndex = turnIndex;
+
+    if (busted) {
+      if (areAllPlayersDone(players, updatedState)) {
+        updatedState.roundFinished = true;
+      } else {
+        nextIndex = getNextActiveTurnIndex(turnIndex, players, updatedState);
+      }
+    }
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+      turn_index: nextIndex,
+    });
 
     if (error) {
       setMessage("Failed to hit.");
@@ -172,48 +280,145 @@ export default function GamePage() {
     }
 
     setGameState(updatedState);
-    setMessage(`${currentPlayer} got +${newValue}`);
+    setTurnIndex(nextIndex);
+    setMessage(
+      busted
+        ? `${currentTurnPlayer} drew ${draw} and busted`
+        : `${currentTurnPlayer} drew ${draw}`
+    );
   }
 
-  async function handleEndGame() {
-    if (!currentLobbyId) {
-      setMessage("No lobby found.");
+  async function handleStand() {
+    if (!currentLobbyId || players.length === 0 || !gameState.roundStarted || gameState.roundFinished) {
       return;
     }
 
+    const currentTurnPlayer = players[turnIndex]?.username;
+
+    if (currentUsername !== currentTurnPlayer) {
+      setMessage("Not your turn.");
+      return;
+    }
+
+    const existing = gameState.players[currentTurnPlayer] || {
+      total: 0,
+      stood: false,
+      busted: false,
+    };
+
+    const updatedState: GameState = {
+      ...gameState,
+      players: {
+        ...gameState.players,
+        [currentTurnPlayer]: {
+          ...existing,
+          stood: true,
+        },
+      },
+    };
+
+    let nextIndex = turnIndex;
+
+    if (areAllPlayersDone(players, updatedState)) {
+      updatedState.roundFinished = true;
+    } else {
+      nextIndex = getNextActiveTurnIndex(turnIndex, players, updatedState);
+    }
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+      turn_index: nextIndex,
+    });
+
+    if (error) {
+      setMessage("Failed to stand.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setTurnIndex(nextIndex);
+    setMessage(`${currentTurnPlayer} stood.`);
+  }
+
+  async function handleDealerPlay() {
+    if (!isHost) {
+      setMessage("Only host can run dealer.");
+      return;
+    }
+
+    if (!gameState.roundFinished) {
+      setMessage("Players must finish first.");
+      return;
+    }
+
+    let dealerTotal = gameState.dealerTotal;
+
+    while (dealerTotal < 17) {
+      dealerTotal += Math.floor(Math.random() * 10) + 1;
+    }
+
+    const updatedState: GameState = {
+      ...gameState,
+      dealerTotal,
+    };
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+    });
+
+    if (error) {
+      setMessage("Failed to play dealer.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setMessage("Dealer finished.");
+  }
+
+  async function handleEndGame() {
     if (!isHost) {
       setMessage("Only host can end the game.");
       return;
     }
 
-    setMessage("Ending game...");
-
-    const { error } = await supabase
-      .from("lobbies")
-      .update({
-        game_started: false,
-        turn_index: 0,
-        game_state: {},
-      })
-      .eq("id", currentLobbyId);
+    const { error } = await updateLobbyGame({
+      game_started: false,
+      turn_index: 0,
+      game_state: EMPTY_GAME_STATE,
+    });
 
     if (error) {
-      console.error(error);
       setMessage("Failed to end game.");
       return;
     }
 
-    window.location.href = "/";
+    router.push("/lobby");
   }
 
-  const currentTurnPlayer =
-    players.length > 0 ? players[turnIndex]?.username : "none";
+  const currentTurnPlayer = players.length > 0 ? players[turnIndex]?.username : "none";
+  const isMyTurn = currentUsername === currentTurnPlayer;
+  const dealerBust = gameState.dealerTotal > 21;
+
+  const results = useMemo(() => {
+    if (!gameState.roundFinished) return [];
+
+    return players.map((player) => {
+      const p = gameState.players[player.username];
+      if (!p) return `${player.username}: no hand`;
+
+      if (p.busted) return `${player.username}: bust`;
+      if (dealerBust) return `${player.username}: win`;
+      if (p.total > gameState.dealerTotal) return `${player.username}: win`;
+      if (p.total < gameState.dealerTotal) return `${player.username}: lose`;
+      return `${player.username}: push`;
+    });
+  }, [players, gameState, dealerBust]);
 
   return (
     <main className="min-h-screen bg-green-950 text-white p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div className="bg-black/20 rounded-2xl p-6 space-y-3">
-          <h1 className="text-4xl font-bold text-center">Multiplayer Game</h1>
+          <h1 className="text-4xl font-bold text-center">Multiplayer Blackjack</h1>
           <p className="text-center">Lobby Code: {currentLobbyCode || "..."}</p>
           <p className="text-center">{message}</p>
         </div>
@@ -226,61 +431,103 @@ export default function GamePage() {
               <p>No players loaded.</p>
             ) : (
               <div className="space-y-2">
-                {players.map((player, index) => (
-                  <div
-                    key={player.id}
-                    className={`p-3 rounded-lg ${
-                      index === turnIndex ? "bg-yellow-500 text-black" : "bg-white/10"
-                    }`}
-                  >
-                    {player.username} ({gameState[player.username] || 0})
-                    {index === turnIndex ? " ← current turn" : ""}
-                  </div>
-                ))}
+                {players.map((player, index) => {
+                  const p = gameState.players[player.username];
+                  const total = p?.total ?? 0;
+                  const stood = p?.stood;
+                  const busted = p?.busted;
+
+                  return (
+                    <div
+                      key={player.id}
+                      className={`p-3 rounded-lg ${
+                        index === turnIndex ? "bg-yellow-500 text-black" : "bg-white/10"
+                      }`}
+                    >
+                      <div>{player.username} ({total})</div>
+                      <div className="text-sm opacity-80">
+                        {busted ? "busted" : stood ? "stood" : "playing"}
+                        {index === turnIndex && !gameState.roundFinished ? " ← current turn" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
           <div className="bg-black/20 rounded-2xl p-6 space-y-4">
-            <h2 className="text-2xl font-bold">Game Panel</h2>
+            <h2 className="text-2xl font-bold">Table</h2>
 
             <p>Current Turn: {currentTurnPlayer}</p>
+            <p>Your Name: {currentUsername || "..."}</p>
+            <p>Dealer Total: {gameState.dealerTotal}</p>
             <p>Host: {isHost ? "You" : "Another player"}</p>
+            <p>Round: {gameState.roundStarted ? (gameState.roundFinished ? "Finished" : "Active") : "Not started"}</p>
 
-            {isHost ? (
+            {isHost && (
               <button
-                onClick={nextTurn}
-                className="w-full bg-blue-600 py-3 rounded-lg font-semibold"
+                onClick={handleStartRound}
+                className="w-full bg-purple-600 py-3 rounded-lg font-semibold"
               >
-                Next Turn
+                Start Round
               </button>
-            ) : (
-              <p className="text-yellow-300 text-center">
-                Waiting for host to change turn
-              </p>
             )}
 
             <button
               onClick={handleHit}
-              className="w-full bg-green-600 py-3 rounded-lg font-semibold"
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-50"
             >
-              Hit (+ random)
+              Hit
             </button>
 
-            {isHost ? (
+            <button
+              onClick={handleStand}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              className="w-full bg-yellow-500 text-black py-3 rounded-lg font-semibold disabled:opacity-50"
+            >
+              Stand
+            </button>
+
+            {isHost && gameState.roundFinished && (
+              <button
+                onClick={handleDealerPlay}
+                className="w-full bg-blue-600 py-3 rounded-lg font-semibold"
+              >
+                Run Dealer
+              </button>
+            )}
+
+            {isHost && (
               <button
                 onClick={handleEndGame}
                 className="w-full bg-red-600 py-3 rounded-lg font-semibold"
               >
                 End Game
               </button>
-            ) : (
-              <p className="text-yellow-300 text-center">
-                Waiting for host controls
-              </p>
+            )}
+
+            {!isMyTurn && gameState.roundStarted && !gameState.roundFinished && (
+              <p className="text-center text-yellow-300">Waiting for current player...</p>
             )}
           </div>
         </div>
+
+        {gameState.roundFinished && (
+          <div className="bg-black/20 rounded-2xl p-6 space-y-2">
+            <h2 className="text-2xl font-bold">Results</h2>
+            {results.length === 0 ? (
+              <p>No results yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {results.map((result) => (
+                  <p key={result}>{result}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
   );
