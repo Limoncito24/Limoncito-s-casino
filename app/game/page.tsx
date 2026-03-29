@@ -378,6 +378,7 @@ export default function GamePage() {
       dealerHand,
       dealerRevealed: true,
       roundFinished: true,
+      betsLocked: false,
     };
 
     const statsPromises: Promise<void>[] = [];
@@ -948,15 +949,17 @@ export default function GamePage() {
   }, [players, gameState]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white p-6">
+    <main className="min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white p-4 sm:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="rounded-3xl border border-yellow-400/20 bg-black/20 backdrop-blur p-5">
-          <h1 className="text-4xl font-bold text-center text-yellow-300">Blackjack Table</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-center text-yellow-300">
+            Blackjack Table
+          </h1>
           <p className="text-center mt-2">Lobby Code: {currentLobbyCode || "..."}</p>
           <p className="text-center text-white/80 mt-1">{message}</p>
         </div>
 
-        <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-6 space-y-8">
+        <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-8">
           <div className="text-center space-y-3">
             <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
             <p>Total: {dealerVisibleTotal}</p>
@@ -1009,41 +1012,99 @@ export default function GamePage() {
                   </div>
 
                   {!gameState.betsLocked && (
-                    <div className="mb-3 space-y-2">
+                    <div className="mb-3 space-y-3">
                       <div>
-                        <label className="text-sm text-white/70 block mb-1">Main Bet</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={betInputs[player.username] ?? 100}
-                          onChange={(e) =>
-                            setBetInputs((prev) => ({
-                              ...prev,
-                              [player.username]: Number(e.target.value || 1),
-                            }))
-                          }
-                          disabled={player.username !== currentUsername}
-                          className="w-full rounded-lg px-3 py-2 text-black"
-                        />
+                        <label className="text-sm text-white/70 block mb-2">Main Bet</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBetInputs((prev) => ({
+                                ...prev,
+                                [player.username]: Math.max(1, (prev[player.username] ?? 100) - 5),
+                              }))
+                            }
+                            disabled={player.username !== currentUsername}
+                            className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                          >
+                            -5
+                          </button>
+
+                          <input
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={betInputs[player.username] ?? 100}
+                            onChange={(e) =>
+                              setBetInputs((prev) => ({
+                                ...prev,
+                                [player.username]: Math.max(
+                                  1,
+                                  Number(e.target.value.replace(/\D/g, "") || 1)
+                                ),
+                              }))
+                            }
+                            disabled={player.username !== currentUsername}
+                            className="w-full rounded-lg px-3 py-3 text-black text-lg"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBetInputs((prev) => ({
+                                ...prev,
+                                [player.username]: (prev[player.username] ?? 100) + 5,
+                              }))
+                            }
+                            disabled={player.username !== currentUsername}
+                            className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                          >
+                            +5
+                          </button>
+                        </div>
                       </div>
 
                       <div>
-                        <label className="text-sm text-white/70 block mb-1">Buster Bet</label>
-                        <select
-                          value={busterInputs[player.username] ?? 0}
-                          onChange={(e) =>
-                            setBusterInputs((prev) => ({
-                              ...prev,
-                              [player.username]: Number(e.target.value),
-                            }))
-                          }
-                          disabled={player.username !== currentUsername}
-                          className="w-full rounded-lg px-3 py-2 text-black"
-                        >
-                          <option value={0}>No Buster</option>
-                          <option value={5}>$5 Buster</option>
-                        </select>
+                        <label className="text-sm text-white/70 block mb-2">Buster Bet</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBusterInputs((prev) => ({
+                                ...prev,
+                                [player.username]: 0,
+                              }))
+                            }
+                            disabled={player.username !== currentUsername}
+                            className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                              (busterInputs[player.username] ?? 0) === 0
+                                ? "bg-gray-300 text-black"
+                                : "bg-white/10 text-white"
+                            }`}
+                          >
+                            No Buster
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBusterInputs((prev) => ({
+                                ...prev,
+                                [player.username]: 5,
+                              }))
+                            }
+                            disabled={player.username !== currentUsername}
+                            className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                              (busterInputs[player.username] ?? 0) === 5
+                                ? "bg-pink-400 text-black"
+                                : "bg-white/10 text-white"
+                            }`}
+                          >
+                            $5 Buster
+                          </button>
+                        </div>
                       </div>
+
+                      <p className="text-xs text-green-300">Bets are open for the next round</p>
                     </div>
                   )}
 
