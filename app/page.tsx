@@ -141,36 +141,42 @@ export default function LobbyPage() {
     }
   }
 
-  return (
-    <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
-      <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
-        <h1 className="text-3xl font-bold text-center">Private Lobby</h1>
+return (
+  <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
+    <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
+      <h1 className="text-3xl font-bold text-center">Private Lobby</h1>
 
-        <button
-          onClick={handleCreateLobby}
-          disabled={loading}
-          className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
-        >
-          {loading ? "Working..." : "Create Lobby"}
-        </button>
+      <a
+        href="/signin"
+        className="block w-full bg-yellow-500 text-black text-center py-3 rounded-lg font-semibold"
+      >
+        Go to Sign In
+      </a>
 
-        <input
-          placeholder="Enter lobby code"
-          value={joinCode}
-          onChange={(e) => setJoinCode(e.target.value)}
-          className="w-full p-3 rounded-lg text-black bg-white"
-        />
+      <button
+        onClick={handleCreateLobby}
+        disabled={loading}
+        className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+      >
+        {loading ? "Working..." : "Create Lobby"}
+      </button>
 
-        <button
-          onClick={handleJoinLobby}
-          disabled={loading}
-          className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
-        >
-          {loading ? "Working..." : "Join Lobby"}
-        </button>
+      <input
+        placeholder="Enter lobby code"
+        value={joinCode}
+        onChange={(e) => setJoinCode(e.target.value)}
+        className="w-full p-3 rounded-lg text-black bg-white"
+      />
 
-        <p className="text-center min-h-[24px]">{message}</p>
-      </div>
-    </main>
-  );
-}
+      <button
+        onClick={handleJoinLobby}
+        disabled={loading}
+        className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+      >
+        {loading ? "Working..." : "Join Lobby"}
+      </button>
+
+      <p className="text-center min-h-[24px]">{message}</p>
+    </div>
+  </main>
+);
