@@ -1,34 +1,89 @@
-import Link from "next/link";
+"use client";
 
-export default function HomePage() {
+import { useState } from "react";
+import { supabase } from "../../lib/supabase";
+
+function generateLobbyCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+export default function LobbyPage() {
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleCreateLobby() {
+    if (loading) return;
+
+    try {
+      setLoading(true);
+      setMessage("Creating lobby...");
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setMessage("You must be logged in.");
+        return;
+      }
+
+      const code = generateLobbyCode();
+
+      const { data: lobby, error: lobbyError } = await supabase
+        .from("lobbies")
+        .insert({
+          code,
+          host_user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (lobbyError || !lobby) {
+        setMessage("Failed to create lobby.");
+        return;
+      }
+
+      const { error: playerError } = await supabase
+        .from("lobby_players")
+        .insert({
+          lobby_id: lobby.id,
+          user_id: user.id,
+        });
+
+      if (playerError) {
+        setMessage("Lobby created, but failed to add host.");
+        return;
+      }
+
+      setMessage(`Lobby created. Code: ${code}`);
+    } catch (err) {
+      console.error(err);
+      setMessage("Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-green-950 text-white flex items-center justify-center p-8">
-      <div className="w-full max-w-2xl bg-black/20 rounded-2xl p-8 text-center">
-        <h1 className="text-4xl font-bold mb-4">Limoncitos Casino</h1>
-        <p className="text-green-100 mb-8">Choose where you want to go</p>
+    <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
+      <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
+        <h1 className="text-3xl font-bold text-center">Private Lobby</h1>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            href="/signin"
-            className="bg-yellow-500 hover:bg-yellow-400 text-black px-6 py-3 rounded-xl font-semibold"
-          >
-            Sign In
-          </Link>
+        <button
+          onClick={handleCreateLobby}
+          disabled={loading}
+          className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+        >
+          {loading ? "Creating..." : "Create Lobby"}
+        </button>
 
-          <Link
-            href="/practice"
-            className="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl font-semibold"
-          >
-            Practice
-          </Link>
-
-          <Link
-            href="/admin"
-            className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl font-semibold"
-          >
-            Admin
-          </Link>
-        </div>
+        <p className="text-center min-h-[24px]">{message}</p>
       </div>
     </main>
   );
