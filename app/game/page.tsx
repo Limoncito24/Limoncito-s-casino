@@ -186,12 +186,19 @@ export default function GamePage() {
       return;
     }
 
+    setMessage("Ending game...");
+
     const { error } = await supabase
       .from("lobbies")
-      .update({ game_started: false, turn_index: 0, game_state: {} })
+      .update({
+        game_started: false,
+        turn_index: 0,
+        game_state: {},
+      })
       .eq("id", currentLobbyId);
 
     if (error) {
+      console.error(error);
       setMessage("Failed to end game.");
       return;
     }
