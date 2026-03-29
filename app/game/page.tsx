@@ -49,6 +49,8 @@ type PlayerStatRow = {
   hands_won: number | null;
   hands_lost: number | null;
   hands_pushed: number | null;
+  pending_bet?: number | null;
+  pending_buster_bet?: number | null;
 };
 
 const EMPTY_GAME_STATE: GameState = {
@@ -262,7 +264,7 @@ export default function GamePage() {
 
     const { data: stats, error: statsError } = await supabase
       .from("player_stats")
-      .select("user_id, username, bankroll")
+      .select("user_id, username, bankroll, pending_bet, pending_buster_bet")
       .in("user_id", userIds);
 
     if (statsError || !stats) {
@@ -287,8 +289,8 @@ export default function GamePage() {
     stats.forEach((s) => {
       const username = s.username || "unknown player";
       bankrollMap[username] = s.bankroll ?? 1000;
-      betMap[username] = 100;
-      busterMap[username] = 0;
+      betMap[username] = s.pending_bet ?? 100;
+      busterMap[username] = s.pending_buster_bet ?? 0;
       confirmedMap[username] = false;
     });
 
@@ -336,15 +338,29 @@ export default function GamePage() {
     return startIndex;
   }
 
-  function handleConfirmBet(username: string) {
+  async function handleConfirmBet(username: string) {
+    const mainBet = betInputs[username] ?? 100;
+    const busterBet = busterInputs[username] ?? 0;
+
+    const { error } = await supabase
+      .from("player_stats")
+      .update({
+        pending_bet: mainBet,
+        pending_buster_bet: busterBet,
+      })
+      .eq("username", username);
+
+    if (error) {
+      setMessage("Failed to save bet.");
+      return;
+    }
+
     setConfirmedBets((prev) => ({
       ...prev,
       [username]: true,
     }));
 
-    setMessage(
-      `Bet saved: main $${betInputs[username] ?? 100} · buster $${busterInputs[username] ?? 0}`
-    );
+    setMessage(`Bet saved: main $${mainBet} · buster $${busterBet}`);
   }
 
   async function updateLobbyGame(
@@ -562,18 +578,32 @@ export default function GamePage() {
       return;
     }
 
+    const usernames = players.map((p) => p.username);
+
+    const { data: latestStats, error: latestStatsError } = await supabase
+      .from("player_stats")
+      .select("username, bankroll, pending_bet, pending_buster_bet")
+      .in("username", usernames);
+
+    if (latestStatsError || !latestStats) {
+      setMessage("Failed to load latest bets.");
+      return;
+    }
+
     const deckCount = players.length + 1;
     const deck = createDecks(deckCount);
     const playerHands: Record<string, Hand[]> = {};
     const activeHandIndex: Record<string, number> = {};
 
     for (const player of players) {
-      const bankroll = bankrolls[player.username] ?? 1000;
-      const requestedBuster = Number(busterInputs[player.username] || 0);
+      const latest = latestStats.find((s) => s.username === player.username);
+
+      const bankroll = latest?.bankroll ?? bankrolls[player.username] ?? 1000;
+      const requestedBuster = Number(latest?.pending_buster_bet ?? 0);
       const finalBusterBet = requestedBuster >= 5 ? 5 : 0;
 
       const maxMainBet = Math.max(1, bankroll - finalBusterBet);
-      const requestedBet = Math.max(1, Number(betInputs[player.username] || 100));
+      const requestedBet = Math.max(1, Number(latest?.pending_bet ?? 100));
       const finalBet = Math.min(requestedBet, maxMainBet);
 
       if (bankroll < finalBet + finalBusterBet) {
