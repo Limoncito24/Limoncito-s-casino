@@ -20,6 +20,28 @@ export default function GamePage() {
     loadGameShell();
   }, []);
 
+  useEffect(() => {
+    if (!currentLobbyId) return;
+
+    const interval = setInterval(async () => {
+      const { data, error } = await supabase
+        .from("lobbies")
+        .select("turn_index, game_started")
+        .eq("id", currentLobbyId)
+        .single();
+
+      if (error || !data) return;
+
+      setTurnIndex(data.turn_index ?? 0);
+
+      if (!data.game_started) {
+        window.location.href = "/lobby";
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [currentLobbyId]);
+
   async function loadGameShell() {
     const {
       data: { user },
@@ -60,6 +82,7 @@ export default function GamePage() {
     setCurrentLobbyId(lobby.id);
     setCurrentLobbyCode(lobby.code);
     setIsHost(lobby.host_user_id === user.id);
+    setTurnIndex(lobby.turn_index ?? 0);
 
     const { data: lobbyPlayers, error: playersError } = await supabase
       .from("lobby_players")
@@ -97,9 +120,27 @@ export default function GamePage() {
     setMessage("Game shell loaded.");
   }
 
-  function nextTurn() {
-    if (players.length === 0) return;
-    setTurnIndex((prev) => (prev + 1) % players.length);
+  async function nextTurn() {
+    if (!currentLobbyId || players.length === 0) return;
+
+    if (!isHost) {
+      setMessage("Only host can change turns.");
+      return;
+    }
+
+    const nextIndex = (turnIndex + 1) % players.length;
+
+    const { error } = await supabase
+      .from("lobbies")
+      .update({ turn_index: nextIndex })
+      .eq("id", currentLobbyId);
+
+    if (error) {
+      setMessage("Failed to update turn.");
+      return;
+    }
+
+    setTurnIndex(nextIndex);
   }
 
   async function handleEndGame() {
@@ -115,7 +156,7 @@ export default function GamePage() {
 
     const { error } = await supabase
       .from("lobbies")
-      .update({ game_started: false })
+      .update({ game_started: false, turn_index: 0 })
       .eq("id", currentLobbyId);
 
     if (error) {
@@ -167,12 +208,18 @@ export default function GamePage() {
             <p>Current Turn: {currentTurnPlayer}</p>
             <p>Host: {isHost ? "You" : "Another player"}</p>
 
-            <button
-              onClick={nextTurn}
-              className="w-full bg-blue-600 py-3 rounded-lg font-semibold"
-            >
-              Next Turn
-            </button>
+            {isHost ? (
+              <button
+                onClick={nextTurn}
+                className="w-full bg-blue-600 py-3 rounded-lg font-semibold"
+              >
+                Next Turn
+              </button>
+            ) : (
+              <p className="text-yellow-300 text-center">
+                Waiting for host to change turn
+              </p>
+            )}
 
             {isHost ? (
               <button
