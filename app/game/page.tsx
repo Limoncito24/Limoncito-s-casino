@@ -30,6 +30,16 @@ type GameState = {
   betsLocked: boolean;
 };
 
+type PlayerStatRow = {
+  user_id: string;
+  username: string;
+  bankroll: number | null;
+  hands_played: number | null;
+  hands_won: number | null;
+  hands_lost: number | null;
+  hands_pushed: number | null;
+};
+
 const EMPTY_GAME_STATE: GameState = {
   deck: [],
   playerHands: {},
@@ -107,13 +117,7 @@ function getCardColor(card: string) {
   return suit === "♥" || suit === "♦" ? "text-red-500" : "text-black";
 }
 
-function Card({
-  card,
-  hidden = false,
-}: {
-  card: string;
-  hidden?: boolean;
-}) {
+function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   if (hidden) {
     return (
       <div className="w-16 h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
@@ -240,7 +244,6 @@ export default function GamePage() {
 
     const formattedPlayers = lobbyPlayers.map((p) => {
       const match = stats.find((s) => s.user_id === p.user_id);
-
       return {
         id: p.id,
         username: match?.username || "unknown player",
@@ -252,8 +255,9 @@ export default function GamePage() {
     const betMap: Record<string, number> = {};
 
     stats.forEach((s) => {
-      bankrollMap[s.username || "unknown player"] = s.bankroll ?? 1000;
-      betMap[s.username || "unknown player"] = 100;
+      const username = s.username || "unknown player";
+      bankrollMap[username] = s.bankroll ?? 1000;
+      betMap[username] = 100;
     });
 
     setCurrentUsername(me?.username || "unknown player");
@@ -346,9 +350,9 @@ export default function GamePage() {
     const activeHandIndex: Record<string, number> = {};
 
     for (const player of players) {
-      const bet = Math.max(1, Number(betInputs[player.username] || 100));
+      const requestedBet = Math.max(1, Number(betInputs[player.username] || 100));
       const bankroll = bankrolls[player.username] ?? 1000;
-      const finalBet = Math.min(bet, bankroll);
+      const finalBet = Math.min(requestedBet, bankroll);
 
       playerHands[player.username] = [
         {
@@ -665,12 +669,11 @@ export default function GamePage() {
       dealerRevealed: true,
     };
 
-    const bankrollUpdates: Promise<unknown>[] = [];
+    const statsPromises: Promise<unknown>[] = [];
 
     for (const player of players) {
       const username = player.username;
       const hands = updatedState.playerHands[username] || [];
-      const bankroll = bankrolls[username] ?? 1000;
 
       let bankrollChange = 0;
       let won = 0;
@@ -713,39 +716,32 @@ export default function GamePage() {
 
       updatedState.playerHands[username] = resolvedHands;
 
-      bankrollUpdates.push(
-        supabase
-          .from("player_stats")
-          .update({
-            bankroll: bankroll + bankrollChange,
-            hands_played: played,
-          })
-          .eq("username", username)
-      );
-
-      const { data: currentStats } = await supabase
+      const { data: currentStats, error: statsError } = await supabase
         .from("player_stats")
         .select("hands_played, hands_won, hands_lost, hands_pushed, bankroll")
         .eq("username", username)
-        .single();
+        .single<PlayerStatRow>();
 
-      if (currentStats) {
-        bankrollUpdates.push(
-          supabase
-            .from("player_stats")
-            .update({
-              bankroll: (currentStats.bankroll ?? bankroll) + bankrollChange,
-              hands_played: (currentStats.hands_played ?? 0) + played,
-              hands_won: (currentStats.hands_won ?? 0) + won,
-              hands_lost: (currentStats.hands_lost ?? 0) + lost,
-              hands_pushed: (currentStats.hands_pushed ?? 0) + pushed,
-            })
-            .eq("username", username)
-        );
+      if (statsError || !currentStats) {
+        continue;
       }
+
+      statsPromises.push(
+        supabase
+          .from("player_stats")
+          .update({
+            bankroll: (currentStats.bankroll ?? 1000) + bankrollChange,
+            hands_played: (currentStats.hands_played ?? 0) + played,
+            hands_won: (currentStats.hands_won ?? 0) + won,
+            hands_lost: (currentStats.hands_lost ?? 0) + lost,
+            hands_pushed: (currentStats.hands_pushed ?? 0) + pushed,
+          })
+          .eq("username", username)
+          .then((res) => res)
+      );
     }
 
-    await Promise.all(bankrollUpdates);
+    await Promise.all(statsPromises);
 
     const { error } = await updateLobbyGame({
       game_state: updatedState,
@@ -793,8 +789,8 @@ export default function GamePage() {
     gameState.dealerRevealed || gameState.roundFinished
       ? calculateHandTotal(gameState.dealerHand)
       : gameState.dealerHand.length > 0
-      ? calculateHandTotal([gameState.dealerHand[0]])
-      : 0;
+        ? calculateHandTotal([gameState.dealerHand[0]])
+        : 0;
 
   const results = useMemo(() => {
     if (!gameState.dealerRevealed) return [];
@@ -841,7 +837,8 @@ export default function GamePage() {
             {players.map((player, index) => {
               const hands = gameState.playerHands[player.username] || [];
               const activeIndex = gameState.activeHandIndex[player.username] ?? 0;
-              const isCurrentTurn = index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
+              const isCurrentTurn =
+                index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
 
               return (
                 <div
@@ -893,35 +890,43 @@ export default function GamePage() {
                     ) : (
                       hands.map((hand, handIndex) => {
                         const total = calculateHandTotal(hand.cards);
-                        const isActiveHand = handIndex === activeIndex && isCurrentTurn && !hand.done;
+                        const isActiveHand =
+                          handIndex === activeIndex && isCurrentTurn && !hand.done;
 
                         return (
                           <div
                             key={`${player.username}-hand-${handIndex}`}
                             className={`rounded-xl p-3 border ${
-                              isActiveHand ? "border-yellow-400 bg-yellow-400/10" : "border-white/10 bg-white/5"
+                              isActiveHand
+                                ? "border-yellow-400 bg-yellow-400/10"
+                                : "border-white/10 bg-white/5"
                             }`}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <p className="font-semibold">
                                 Hand {handIndex + 1} · Total {total}
                               </p>
-                              <p className="text-sm text-white/70">
-                                Bet ${hand.bet}
-                              </p>
+                              <p className="text-sm text-white/70">Bet ${hand.bet}</p>
                             </div>
 
                             <div className="flex gap-2 flex-wrap min-h-[110px]">
                               {hand.cards.map((card, cardIndex) => (
-                                <Card key={`${player.username}-${handIndex}-${card}-${cardIndex}`} card={card} />
+                                <Card
+                                  key={`${player.username}-${handIndex}-${card}-${cardIndex}`}
+                                  card={card}
+                                />
                               ))}
                             </div>
 
                             <div className="mt-2 text-sm text-white/75">
                               {hand.busted && <p className="text-red-300">Busted</p>}
-                              {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
+                              {hand.surrendered && (
+                                <p className="text-orange-300">Surrendered</p>
+                              )}
                               {hand.doubled && <p className="text-blue-300">Doubled down</p>}
-                              {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
+                              {hand.result && (
+                                <p className="text-yellow-300">Result: {hand.result}</p>
+                              )}
                             </div>
                           </div>
                         );
@@ -1018,7 +1023,9 @@ export default function GamePage() {
             )}
 
             {!isMyTurn && gameState.roundStarted && !gameState.roundFinished && (
-              <p className="text-sm text-yellow-300 text-center">Waiting for current player...</p>
+              <p className="text-sm text-yellow-300 text-center">
+                Waiting for current player...
+              </p>
             )}
           </div>
         </div>
