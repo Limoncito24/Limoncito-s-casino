@@ -343,9 +343,7 @@ export default function GamePage() {
     }));
 
     setMessage(
-      `${username} confirmed main bet $${betInputs[username] ?? 100} ${
-        (busterInputs[username] ?? 0) === 5 ? "with $5 buster" : "with no buster"
-      }`
+      `Bet saved: main $${betInputs[username] ?? 100} · buster $${busterInputs[username] ?? 0}`
     );
   }
 
@@ -561,13 +559,6 @@ export default function GamePage() {
 
     if (players.length === 0) {
       setMessage("No players found.");
-      return;
-    }
-
-    const allConfirmed = players.every((player) => confirmedBets[player.username]);
-
-    if (!allConfirmed) {
-      setMessage("All players need to confirm their bets first.");
       return;
     }
 
