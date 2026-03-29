@@ -51,8 +51,6 @@ type PlayerStatRow = {
   hands_pushed: number | null;
 };
 
-const FIXED_BUSTER_BET = 5;
-
 const EMPTY_GAME_STATE: GameState = {
   deck: [],
   playerHands: {},
@@ -176,6 +174,7 @@ export default function GamePage() {
   const [gameState, setGameState] = useState<GameState>(EMPTY_GAME_STATE);
   const [bankrolls, setBankrolls] = useState<Record<string, number>>({});
   const [betInputs, setBetInputs] = useState<Record<string, number>>({});
+  const [busterInputs, setBusterInputs] = useState<Record<string, number>>({});
 
   useEffect(() => {
     void loadGameShell();
@@ -281,17 +280,20 @@ export default function GamePage() {
     const me = stats.find((s) => s.user_id === user.id);
     const bankrollMap: Record<string, number> = {};
     const betMap: Record<string, number> = {};
+    const busterMap: Record<string, number> = {};
 
     stats.forEach((s) => {
       const username = s.username || "unknown player";
       bankrollMap[username] = s.bankroll ?? 1000;
       betMap[username] = 100;
+      busterMap[username] = 0;
     });
 
     setCurrentUsername(me?.username || "unknown player");
     setPlayers(formattedPlayers);
     setBankrolls(bankrollMap);
     setBetInputs(betMap);
+    setBusterInputs(busterMap);
     setMessage("Table loaded.");
   }
 
@@ -362,6 +364,169 @@ export default function GamePage() {
     setBankrolls(next);
   }
 
+  async function settleRound(
+    stateToSettle: GameState,
+    dealerHandOverride?: string[]
+  ): Promise<{ updatedState: GameState; summaryMessage: string }> {
+    const dealerHand = dealerHandOverride ? [...dealerHandOverride] : [...stateToSettle.dealerHand];
+    const dealerTotal = calculateHandTotal(dealerHand);
+    const dealerBust = dealerTotal > 21;
+    const busterMultiplier = dealerBust ? getBusterMultiplier(dealerHand.length) : 0;
+
+    const updatedState: GameState = {
+      ...stateToSettle,
+      dealerHand,
+      dealerRevealed: true,
+      roundFinished: true,
+    };
+
+    const statsPromises: Promise<void>[] = [];
+
+    for (const player of players) {
+      const username = player.username;
+      const hands = updatedState.playerHands[username] || [];
+
+      let bankrollChange = 0;
+      let won = 0;
+      let lost = 0;
+      let pushed = 0;
+      let played = 0;
+
+      const resolvedHands = hands.map((hand) => {
+        played += 1;
+
+        const nextHand: Hand = {
+          ...hand,
+          busterWon: false,
+          busterPayout: 0,
+        };
+
+        if (dealerBust && hand.busterBet === 5 && busterMultiplier > 0) {
+          const busterProfit = hand.busterBet * busterMultiplier;
+          bankrollChange += busterProfit;
+          nextHand.busterWon = true;
+          nextHand.busterPayout = busterProfit;
+        }
+
+        if (hand.surrendered) {
+          bankrollChange -= hand.bet / 2;
+          lost += 1;
+          nextHand.result = "surrender";
+          return nextHand;
+        }
+
+        if (hand.busted) {
+          bankrollChange -= hand.bet;
+          lost += 1;
+          nextHand.result = "bust";
+          return nextHand;
+        }
+
+        const handTotal = calculateHandTotal(hand.cards);
+
+        if (hand.blackjack) {
+          if (isBlackjack(dealerHand)) {
+            pushed += 1;
+            nextHand.result = "push";
+            return nextHand;
+          }
+
+          bankrollChange += hand.bet * 1.5;
+          won += 1;
+          nextHand.result = "blackjack";
+          return nextHand;
+        }
+
+        if (isBlackjack(dealerHand)) {
+          bankrollChange -= hand.bet;
+          lost += 1;
+          nextHand.result = "lose";
+          return nextHand;
+        }
+
+        if (dealerBust || handTotal > dealerTotal) {
+          bankrollChange += hand.bet;
+          won += 1;
+          nextHand.result = "win";
+          return nextHand;
+        }
+
+        if (handTotal < dealerTotal) {
+          bankrollChange -= hand.bet;
+          lost += 1;
+          nextHand.result = "lose";
+          return nextHand;
+        }
+
+        pushed += 1;
+        nextHand.result = "push";
+        return nextHand;
+      });
+
+      updatedState.playerHands[username] = resolvedHands;
+
+      const { data: currentStats, error: statsError } = await supabase
+        .from("player_stats")
+        .select("hands_played, hands_won, hands_lost, hands_pushed, bankroll")
+        .eq("username", username)
+        .single<PlayerStatRow>();
+
+      if (statsError || !currentStats) {
+        continue;
+      }
+
+      statsPromises.push(
+        (async () => {
+          await supabase
+            .from("player_stats")
+            .update({
+              bankroll:
+                Math.round(((currentStats.bankroll ?? 1000) + bankrollChange) * 100) / 100,
+              hands_played: (currentStats.hands_played ?? 0) + played,
+              hands_won: (currentStats.hands_won ?? 0) + won,
+              hands_lost: (currentStats.hands_lost ?? 0) + lost,
+              hands_pushed: (currentStats.hands_pushed ?? 0) + pushed,
+            })
+            .eq("username", username);
+        })()
+      );
+    }
+
+    await Promise.all(statsPromises);
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+    });
+
+    if (error) {
+      return {
+        updatedState,
+        summaryMessage: "Round settled, but failed to save lobby state.",
+      };
+    }
+
+    await refreshBankrolls();
+
+    if (isBlackjack(dealerHand)) {
+      return {
+        updatedState,
+        summaryMessage: "Dealer has blackjack.",
+      };
+    }
+
+    if (dealerBust) {
+      return {
+        updatedState,
+        summaryMessage: `Dealer busted with ${dealerHand.length} cards. Buster paid ${busterMultiplier}:1`,
+      };
+    }
+
+    return {
+      updatedState,
+      summaryMessage: "Dealer finished.",
+    };
+  }
+
   async function handleStartRound() {
     if (!isHost) {
       setMessage("Only host can start the round.");
@@ -380,11 +545,14 @@ export default function GamePage() {
 
     for (const player of players) {
       const bankroll = bankrolls[player.username] ?? 1000;
-      const maxMainBet = Math.max(1, bankroll - FIXED_BUSTER_BET);
+      const requestedBuster = Number(busterInputs[player.username] || 0);
+      const finalBusterBet = requestedBuster >= 5 ? 5 : 0;
+
+      const maxMainBet = Math.max(1, bankroll - finalBusterBet);
       const requestedBet = Math.max(1, Number(betInputs[player.username] || 100));
       const finalBet = Math.min(requestedBet, maxMainBet);
 
-      if (bankroll < finalBet + FIXED_BUSTER_BET) {
+      if (bankroll < finalBet + finalBusterBet) {
         setMessage(`${player.username} does not have enough bankroll.`);
         return;
       }
@@ -396,7 +564,7 @@ export default function GamePage() {
         {
           cards,
           bet: finalBet,
-          busterBet: FIXED_BUSTER_BET,
+          busterBet: finalBusterBet,
           done: blackjack,
           busted: false,
           surrendered: false,
@@ -411,6 +579,7 @@ export default function GamePage() {
     }
 
     const dealerHand = [deck.pop()!, deck.pop()!];
+    const dealerHasBlackjack = isBlackjack(dealerHand);
 
     const freshState: GameState = {
       deck,
@@ -418,10 +587,12 @@ export default function GamePage() {
       activeHandIndex,
       dealerHand,
       roundStarted: true,
-      roundFinished: players.every((player) =>
-        (playerHands[player.username] || []).every((hand) => hand.done)
-      ),
-      dealerRevealed: false,
+      roundFinished:
+        dealerHasBlackjack ||
+        players.every((player) =>
+          (playerHands[player.username] || []).every((hand) => hand.done)
+        ),
+      dealerRevealed: dealerHasBlackjack,
       betsLocked: true,
     };
 
@@ -437,6 +608,14 @@ export default function GamePage() {
 
     setGameState(freshState);
     setTurnIndex(0);
+
+    if (dealerHasBlackjack) {
+      const { updatedState, summaryMessage } = await settleRound(freshState, dealerHand);
+      setGameState(updatedState);
+      setMessage(summaryMessage);
+      return;
+    }
+
     setMessage(`Round started. Shoe: ${deckCount} decks`);
   }
 
@@ -706,139 +885,18 @@ export default function GamePage() {
       dealerHand.push(deck.pop()!);
     }
 
-    const dealerTotal = calculateHandTotal(dealerHand);
-    const dealerBust = dealerTotal > 21;
-    const busterMultiplier = dealerBust ? getBusterMultiplier(dealerHand.length) : 0;
-
-    const updatedState: GameState = {
-      ...gameState,
-      deck,
-      dealerHand,
-      dealerRevealed: true,
-    };
-
-    const statsPromises: Promise<void>[] = [];
-
-    for (const player of players) {
-      const username = player.username;
-      const hands = updatedState.playerHands[username] || [];
-
-      let bankrollChange = 0;
-      let won = 0;
-      let lost = 0;
-      let pushed = 0;
-      let played = 0;
-
-      const resolvedHands = hands.map((hand) => {
-        played += 1;
-
-        let nextHand: Hand = {
-          ...hand,
-          busterWon: false,
-          busterPayout: 0,
-        };
-
-        if (dealerBust && hand.busterBet === FIXED_BUSTER_BET && busterMultiplier > 0) {
-          const busterProfit = hand.busterBet * busterMultiplier;
-          bankrollChange += busterProfit;
-          nextHand.busterWon = true;
-          nextHand.busterPayout = busterProfit;
-        }
-
-        if (hand.surrendered) {
-          bankrollChange -= hand.bet / 2;
-          lost += 1;
-          nextHand.result = "surrender";
-          return nextHand;
-        }
-
-        if (hand.busted) {
-          bankrollChange -= hand.bet;
-          lost += 1;
-          nextHand.result = "bust";
-          return nextHand;
-        }
-
-        const handTotal = calculateHandTotal(hand.cards);
-
-        if (hand.blackjack) {
-          if (isBlackjack(dealerHand)) {
-            pushed += 1;
-            nextHand.result = "push";
-            return nextHand;
-          }
-
-          bankrollChange += hand.bet * 1.5;
-          won += 1;
-          nextHand.result = "blackjack";
-          return nextHand;
-        }
-
-        if (dealerBust || handTotal > dealerTotal) {
-          bankrollChange += hand.bet;
-          won += 1;
-          nextHand.result = "win";
-          return nextHand;
-        }
-
-        if (handTotal < dealerTotal) {
-          bankrollChange -= hand.bet;
-          lost += 1;
-          nextHand.result = "lose";
-          return nextHand;
-        }
-
-        pushed += 1;
-        nextHand.result = "push";
-        return nextHand;
-      });
-
-      updatedState.playerHands[username] = resolvedHands;
-
-      const { data: currentStats, error: statsError } = await supabase
-        .from("player_stats")
-        .select("hands_played, hands_won, hands_lost, hands_pushed, bankroll")
-        .eq("username", username)
-        .single<PlayerStatRow>();
-
-      if (statsError || !currentStats) {
-        continue;
-      }
-
-      statsPromises.push(
-        (async () => {
-          await supabase
-            .from("player_stats")
-            .update({
-              bankroll: Math.round(((currentStats.bankroll ?? 1000) + bankrollChange) * 100) / 100,
-              hands_played: (currentStats.hands_played ?? 0) + played,
-              hands_won: (currentStats.hands_won ?? 0) + won,
-              hands_lost: (currentStats.hands_lost ?? 0) + lost,
-              hands_pushed: (currentStats.hands_pushed ?? 0) + pushed,
-            })
-            .eq("username", username);
-        })()
-      );
-    }
-
-    await Promise.all(statsPromises);
-
-    const { error } = await updateLobbyGame({
-      game_state: updatedState,
-    });
-
-    if (error) {
-      setMessage("Failed to run dealer.");
-      return;
-    }
+    const { updatedState, summaryMessage } = await settleRound(
+      {
+        ...gameState,
+        deck,
+        dealerHand,
+        dealerRevealed: true,
+      },
+      dealerHand
+    );
 
     setGameState(updatedState);
-    await refreshBankrolls();
-    setMessage(
-      dealerBust
-        ? `Dealer busted with ${dealerHand.length} cards. Buster paid ${busterMultiplier}:1`
-        : "Dealer finished."
-    );
+    setMessage(summaryMessage);
   }
 
   async function handleEndGame() {
@@ -951,24 +1009,41 @@ export default function GamePage() {
                   </div>
 
                   {!gameState.betsLocked && (
-                    <div className="mb-3">
-                      <label className="text-sm text-white/70 block mb-1">Main Bet</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={betInputs[player.username] ?? 100}
-                        onChange={(e) =>
-                          setBetInputs((prev) => ({
-                            ...prev,
-                            [player.username]: Number(e.target.value || 1),
-                          }))
-                        }
-                        disabled={player.username !== currentUsername}
-                        className="w-full rounded-lg px-3 py-2 text-black"
-                      />
-                      <p className="text-xs text-white/60 mt-1">
-                        Buster side bet: fixed $5
-                      </p>
+                    <div className="mb-3 space-y-2">
+                      <div>
+                        <label className="text-sm text-white/70 block mb-1">Main Bet</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={betInputs[player.username] ?? 100}
+                          onChange={(e) =>
+                            setBetInputs((prev) => ({
+                              ...prev,
+                              [player.username]: Number(e.target.value || 1),
+                            }))
+                          }
+                          disabled={player.username !== currentUsername}
+                          className="w-full rounded-lg px-3 py-2 text-black"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-sm text-white/70 block mb-1">Buster Bet</label>
+                        <select
+                          value={busterInputs[player.username] ?? 0}
+                          onChange={(e) =>
+                            setBusterInputs((prev) => ({
+                              ...prev,
+                              [player.username]: Number(e.target.value),
+                            }))
+                          }
+                          disabled={player.username !== currentUsername}
+                          className="w-full rounded-lg px-3 py-2 text-black"
+                        >
+                          <option value={0}>No Buster</option>
+                          <option value={5}>$5 Buster</option>
+                        </select>
+                      </div>
                     </div>
                   )}
 
@@ -1017,7 +1092,9 @@ export default function GamePage() {
                               {hand.busterWon && (
                                 <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
                               )}
-                              {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
+                              {hand.result && (
+                                <p className="text-yellow-300">Result: {hand.result}</p>
+                              )}
                             </div>
                           </div>
                         );
@@ -1039,7 +1116,7 @@ export default function GamePage() {
               <p>Host: {isHost ? "You" : "Another player"}</p>
               <p>Cards Left In Shoe: {gameState.deck.length}</p>
               <p>Decks In Shoe: {players.length + 1}</p>
-              <p>Buster Bet: Fixed $5</p>
+              <p>Buster: optional $0 or $5</p>
               <p>Blackjack Pays: 3:2</p>
               <p>
                 Round:{" "}
