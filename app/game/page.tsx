@@ -9,41 +9,120 @@ type LobbyPlayer = {
   username: string;
 };
 
-type PlayerState = {
-  total: number;
-  stood: boolean;
-  busted: boolean;
-};
-
 type GameState = {
-  players: Record<string, PlayerState>;
-  dealerTotal: number;
+  deck: string[];
+  playerHands: Record<string, string[]>;
+  playerDone: Record<string, boolean>;
+  dealerHand: string[];
   roundStarted: boolean;
   roundFinished: boolean;
+  dealerRevealed: boolean;
 };
 
 const EMPTY_GAME_STATE: GameState = {
-  players: {},
-  dealerTotal: 0,
+  deck: [],
+  playerHands: {},
+  playerDone: {},
+  dealerHand: [],
   roundStarted: false,
   roundFinished: false,
+  dealerRevealed: false,
 };
 
 function normalizeGameState(value: unknown): GameState {
   const raw = (value as Partial<GameState>) || {};
 
   return {
-    players: raw.players || {},
-    dealerTotal: raw.dealerTotal || 0,
+    deck: Array.isArray(raw.deck) ? raw.deck : [],
+    playerHands: raw.playerHands || {},
+    playerDone: raw.playerDone || {},
+    dealerHand: Array.isArray(raw.dealerHand) ? raw.dealerHand : [],
     roundStarted: raw.roundStarted || false,
     roundFinished: raw.roundFinished || false,
+    dealerRevealed: raw.dealerRevealed || false,
   };
+}
+
+function createDeck() {
+  const suits = ["♠", "♥", "♦", "♣"];
+  const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+  const deck: string[] = [];
+
+  for (const suit of suits) {
+    for (const rank of ranks) {
+      deck.push(`${rank}${suit}`);
+    }
+  }
+
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+
+  return deck;
+}
+
+function getCardRank(card: string) {
+  return card.slice(0, -1);
+}
+
+function getCardSuit(card: string) {
+  return card.slice(-1);
+}
+
+function getCardValue(card: string) {
+  const rank = getCardRank(card);
+
+  if (rank === "A") return 11;
+  if (["K", "Q", "J"].includes(rank)) return 10;
+  return Number(rank);
+}
+
+function calculateHandTotal(cards: string[]) {
+  let total = cards.reduce((sum, card) => sum + getCardValue(card), 0);
+  let aces = cards.filter((card) => getCardRank(card) === "A").length;
+
+  while (total > 21 && aces > 0) {
+    total -= 10;
+    aces--;
+  }
+
+  return total;
+}
+
+function getCardColor(card: string) {
+  const suit = getCardSuit(card);
+  return suit === "♥" || suit === "♦" ? "text-red-500" : "text-black";
+}
+
+function Card({
+  card,
+  hidden = false,
+}: {
+  card: string;
+  hidden?: boolean;
+}) {
+  if (hidden) {
+    return (
+      <div className="w-16 h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
+        <div className="w-10 h-16 rounded-lg border border-white/30 bg-blue-500/40" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-16 h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
+      <div className={`text-sm font-bold ${getCardColor(card)}`}>{card}</div>
+      <div className={`text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
+      <div className={`text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
+    </div>
+  );
 }
 
 export default function GamePage() {
   const router = useRouter();
 
-  const [message, setMessage] = useState("Loading game...");
+  const [message, setMessage] = useState("Loading table...");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [currentLobbyId, setCurrentLobbyId] = useState<string | null>(null);
   const [currentLobbyCode, setCurrentLobbyCode] = useState("");
@@ -53,7 +132,7 @@ export default function GamePage() {
   const [gameState, setGameState] = useState<GameState>(EMPTY_GAME_STATE);
 
   useEffect(() => {
-    loadGameShell();
+    void loadGameShell();
   }, []);
 
   useEffect(() => {
@@ -155,10 +234,14 @@ export default function GamePage() {
     });
 
     const me = stats.find((s) => s.user_id === user.id);
-    setCurrentUsername(me?.username || "unknown player");
 
+    setCurrentUsername(me?.username || "unknown player");
     setPlayers(formattedPlayers);
-    setMessage("Game loaded.");
+    setMessage("Table loaded.");
+  }
+
+  function areAllPlayersDone(allPlayers: LobbyPlayer[], state: GameState) {
+    return allPlayers.every((player) => state.playerDone[player.username]);
   }
 
   function getNextActiveTurnIndex(
@@ -171,21 +254,13 @@ export default function GamePage() {
     for (let step = 1; step <= allPlayers.length; step++) {
       const nextIndex = (startIndex + step) % allPlayers.length;
       const username = allPlayers[nextIndex]?.username;
-      const playerState = state.players[username];
 
-      if (!playerState?.stood && !playerState?.busted) {
+      if (!state.playerDone[username]) {
         return nextIndex;
       }
     }
 
     return startIndex;
-  }
-
-  function areAllPlayersDone(allPlayers: LobbyPlayer[], state: GameState) {
-    return allPlayers.every((player) => {
-      const p = state.players[player.username];
-      return p?.stood || p?.busted;
-    });
   }
 
   async function updateLobbyGame(
@@ -208,20 +283,30 @@ export default function GamePage() {
       return;
     }
 
+    if (players.length === 0) {
+      setMessage("No players found.");
+      return;
+    }
+
+    const deck = createDeck();
+    const playerHands: Record<string, string[]> = {};
+    const playerDone: Record<string, boolean> = {};
+
+    for (const player of players) {
+      playerHands[player.username] = [deck.pop()!, deck.pop()!];
+      playerDone[player.username] = false;
+    }
+
+    const dealerHand = [deck.pop()!, deck.pop()!];
+
     const freshState: GameState = {
-      players: Object.fromEntries(
-        players.map((player) => [
-          player.username,
-          {
-            total: Math.floor(Math.random() * 10) + 2,
-            stood: false,
-            busted: false,
-          },
-        ])
-      ),
-      dealerTotal: Math.floor(Math.random() * 10) + 2,
+      deck,
+      playerHands,
+      playerDone,
+      dealerHand,
       roundStarted: true,
       roundFinished: false,
+      dealerRevealed: false,
     };
 
     const { error } = await updateLobbyGame({
@@ -240,36 +325,38 @@ export default function GamePage() {
   }
 
   async function handleHit() {
-    if (!currentLobbyId || players.length === 0 || !gameState.roundStarted || gameState.roundFinished) {
-      return;
-    }
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
 
-    if (currentUsername !== currentTurnPlayer) {
+    if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
       setMessage("Not your turn.");
       return;
     }
 
-    const existing = gameState.players[currentTurnPlayer] || {
-      total: 0,
-      stood: false,
-      busted: false,
-    };
+    const deck = [...gameState.deck];
+    const drawnCard = deck.pop();
 
-    const draw = Math.floor(Math.random() * 10) + 1;
-    const newTotal = existing.total + draw;
-    const busted = newTotal > 21;
+    if (!drawnCard) {
+      setMessage("Deck is empty.");
+      return;
+    }
+
+    const currentHand = gameState.playerHands[currentTurnPlayer] || [];
+    const updatedHand = [...currentHand, drawnCard];
+    const total = calculateHandTotal(updatedHand);
+    const busted = total > 21;
 
     const updatedState: GameState = {
       ...gameState,
-      players: {
-        ...gameState.players,
-        [currentTurnPlayer]: {
-          ...existing,
-          total: newTotal,
-          busted,
-        },
+      deck,
+      playerHands: {
+        ...gameState.playerHands,
+        [currentTurnPlayer]: updatedHand,
+      },
+      playerDone: {
+        ...gameState.playerDone,
+        [currentTurnPlayer]: busted ? true : gameState.playerDone[currentTurnPlayer],
       },
     };
 
@@ -297,37 +384,26 @@ export default function GamePage() {
     setTurnIndex(nextIndex);
     setMessage(
       busted
-        ? `${currentTurnPlayer} drew ${draw} and busted`
-        : `${currentTurnPlayer} drew ${draw}`
+        ? `${currentTurnPlayer} drew ${drawnCard} and busted`
+        : `${currentTurnPlayer} drew ${drawnCard}`
     );
   }
 
   async function handleStand() {
-    if (!currentLobbyId || players.length === 0 || !gameState.roundStarted || gameState.roundFinished) {
-      return;
-    }
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
 
-    if (currentUsername !== currentTurnPlayer) {
+    if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
       setMessage("Not your turn.");
       return;
     }
 
-    const existing = gameState.players[currentTurnPlayer] || {
-      total: 0,
-      stood: false,
-      busted: false,
-    };
-
     const updatedState: GameState = {
       ...gameState,
-      players: {
-        ...gameState.players,
-        [currentTurnPlayer]: {
-          ...existing,
-          stood: true,
-        },
+      playerDone: {
+        ...gameState.playerDone,
+        [currentTurnPlayer]: true,
       },
     };
 
@@ -365,15 +441,18 @@ export default function GamePage() {
       return;
     }
 
-    let dealerTotal = gameState.dealerTotal;
+    const deck = [...gameState.deck];
+    const dealerHand = [...gameState.dealerHand];
 
-    while (dealerTotal < 17) {
-      dealerTotal += Math.floor(Math.random() * 10) + 1;
+    while (calculateHandTotal(dealerHand) < 17 && deck.length > 0) {
+      dealerHand.push(deck.pop()!);
     }
 
     const updatedState: GameState = {
       ...gameState,
-      dealerTotal,
+      deck,
+      dealerHand,
+      dealerRevealed: true,
     };
 
     const { error } = await updateLobbyGame({
@@ -381,7 +460,7 @@ export default function GamePage() {
     });
 
     if (error) {
-      setMessage("Failed to play dealer.");
+      setMessage("Failed to run dealer.");
       return;
     }
 
@@ -411,84 +490,145 @@ export default function GamePage() {
 
   const currentTurnPlayer = players.length > 0 ? players[turnIndex]?.username : "none";
   const isMyTurn = currentUsername === currentTurnPlayer;
-  const dealerBust = gameState.dealerTotal > 21;
+
+  const dealerVisibleCards =
+    gameState.dealerRevealed || gameState.roundFinished
+      ? gameState.dealerHand
+      : gameState.dealerHand.map((card, index) => (index === 0 ? card : "HIDDEN"));
+
+  const dealerVisibleTotal =
+    gameState.dealerRevealed || gameState.roundFinished
+      ? calculateHandTotal(gameState.dealerHand)
+      : gameState.dealerHand.length > 0
+      ? calculateHandTotal([gameState.dealerHand[0]])
+      : 0;
 
   const results = useMemo(() => {
-    if (!gameState.roundFinished) return [];
+    if (!gameState.dealerRevealed) return [];
+
+    const dealerTotal = calculateHandTotal(gameState.dealerHand);
+    const dealerBust = dealerTotal > 21;
 
     return players.map((player) => {
-      const p = gameState.players[player.username];
-      if (!p) return `${player.username}: no hand`;
-      if (p.busted) return `${player.username}: bust`;
+      const hand = gameState.playerHands[player.username] || [];
+      const total = calculateHandTotal(hand);
+      const busted = total > 21;
+
+      if (busted) return `${player.username}: bust`;
       if (dealerBust) return `${player.username}: win`;
-      if (p.total > gameState.dealerTotal) return `${player.username}: win`;
-      if (p.total < gameState.dealerTotal) return `${player.username}: lose`;
+      if (total > dealerTotal) return `${player.username}: win`;
+      if (total < dealerTotal) return `${player.username}: lose`;
       return `${player.username}: push`;
     });
-  }, [players, gameState, dealerBust]);
+  }, [players, gameState]);
 
   return (
-    <main className="min-h-screen bg-green-950 text-white p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="bg-black/20 rounded-2xl p-6 space-y-3">
-          <h1 className="text-4xl font-bold text-center">Multiplayer Blackjack</h1>
-          <p className="text-center">Lobby Code: {currentLobbyCode || "..."}</p>
-          <p className="text-center">{message}</p>
+    <main className="min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white p-6">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="rounded-3xl border border-yellow-400/20 bg-black/20 backdrop-blur p-5">
+          <h1 className="text-4xl font-bold text-center text-yellow-300">Blackjack Table</h1>
+          <p className="text-center mt-2">Lobby Code: {currentLobbyCode || "..."}</p>
+          <p className="text-center text-white/80 mt-1">{message}</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="bg-black/20 rounded-2xl p-6 space-y-3">
-            <h2 className="text-2xl font-bold">Players</h2>
+        <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-6 space-y-8">
+          <div className="text-center space-y-3">
+            <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
+            <p>Total: {dealerVisibleTotal}</p>
 
-            {players.length === 0 ? (
-              <p>No players loaded.</p>
-            ) : (
-              <div className="space-y-2">
-                {players.map((player, index) => {
-                  const p = gameState.players[player.username];
-                  const total = p?.total ?? 0;
-                  const stood = p?.stood;
-                  const busted = p?.busted;
-
-                  return (
-                    <div
-                      key={player.id}
-                      className={`p-3 rounded-lg ${
-                        index === turnIndex ? "bg-yellow-500 text-black" : "bg-white/10"
-                      }`}
-                    >
-                      <div>{player.username} ({total})</div>
-                      <div className="text-sm opacity-80">
-                        {busted ? "busted" : stood ? "stood" : "playing"}
-                        {index === turnIndex && !gameState.roundFinished ? " ← current turn" : ""}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex justify-center gap-3 flex-wrap min-h-[110px]">
+              {dealerVisibleCards.length === 0 ? (
+                <p className="text-white/70">No dealer cards yet</p>
+              ) : (
+                dealerVisibleCards.map((card, index) =>
+                  card === "HIDDEN" ? (
+                    <Card key={`hidden-${index}`} card="??" hidden />
+                  ) : (
+                    <Card key={`${card}-${index}`} card={card} />
+                  )
+                )
+              )}
+            </div>
           </div>
 
-          <div className="bg-black/20 rounded-2xl p-6 space-y-4">
-            <h2 className="text-2xl font-bold">Table</h2>
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {players.map((player, index) => {
+              const hand = gameState.playerHands[player.username] || [];
+              const total = calculateHandTotal(hand);
+              const isCurrentTurn = index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
+              const isDone = gameState.playerDone[player.username];
+              const busted = total > 21;
 
-            <p>Current Turn: {currentTurnPlayer}</p>
-            <p>Your Name: {currentUsername || "..."}</p>
-            <p>Dealer Total: {gameState.dealerTotal}</p>
-            <p>Host: {isHost ? "You" : "Another player"}</p>
-            <p>
-              Round:{" "}
-              {gameState.roundStarted
-                ? gameState.roundFinished
-                  ? "Finished"
-                  : "Active"
-                : "Not started"}
-            </p>
+              return (
+                <div
+                  key={player.id}
+                  className={`rounded-2xl p-4 border ${
+                    isCurrentTurn
+                      ? "border-yellow-400 bg-yellow-400/15"
+                      : "border-white/10 bg-black/20"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-bold text-lg">{player.username}</p>
+                      <p className="text-sm text-white/70">Total: {hand.length ? total : 0}</p>
+                    </div>
+                    <div className="text-right text-sm">
+                      {busted ? (
+                        <p className="text-red-300">Busted</p>
+                      ) : isDone ? (
+                        <p className="text-yellow-300">Standing</p>
+                      ) : isCurrentTurn ? (
+                        <p className="text-green-300">Current turn</p>
+                      ) : (
+                        <p className="text-white/60">Waiting</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap min-h-[110px]">
+                    {hand.length === 0 ? (
+                      <p className="text-white/60">No cards yet</p>
+                    ) : (
+                      hand.map((card, handIndex) => (
+                        <Card key={`${player.username}-${card}-${handIndex}`} card={card} />
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-[1fr_320px] gap-6">
+          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Table Info</h2>
+            <div className="space-y-2 text-white/90">
+              <p>Current Turn: {currentTurnPlayer}</p>
+              <p>You: {currentUsername || "..."}</p>
+              <p>Host: {isHost ? "You" : "Another player"}</p>
+              <p>Cards Left In Deck: {gameState.deck.length}</p>
+              <p>
+                Round:{" "}
+                {gameState.roundStarted
+                  ? gameState.roundFinished
+                    ? gameState.dealerRevealed
+                      ? "Results ready"
+                      : "Waiting for dealer"
+                    : "Active"
+                  : "Not started"}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-black/20 border border-white/10 p-5 space-y-3">
+            <h2 className="text-2xl font-bold text-yellow-300">Actions</h2>
 
             {isHost && (
               <button
                 onClick={handleStartRound}
-                className="w-full bg-purple-600 py-3 rounded-lg font-semibold"
+                className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold"
               >
                 Start Round
               </button>
@@ -497,7 +637,7 @@ export default function GamePage() {
             <button
               onClick={handleHit}
               disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
-              className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-50"
+              className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Hit
             </button>
@@ -505,15 +645,15 @@ export default function GamePage() {
             <button
               onClick={handleStand}
               disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
-              className="w-full bg-yellow-500 text-black py-3 rounded-lg font-semibold disabled:opacity-50"
+              className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Stand
             </button>
 
-            {isHost && gameState.roundFinished && (
+            {isHost && gameState.roundFinished && !gameState.dealerRevealed && (
               <button
                 onClick={handleDealerPlay}
-                className="w-full bg-blue-600 py-3 rounded-lg font-semibold"
+                className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold"
               >
                 Run Dealer
               </button>
@@ -522,30 +662,28 @@ export default function GamePage() {
             {isHost && (
               <button
                 onClick={handleEndGame}
-                className="w-full bg-red-600 py-3 rounded-lg font-semibold"
+                className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold"
               >
                 End Game
               </button>
             )}
 
             {!isMyTurn && gameState.roundStarted && !gameState.roundFinished && (
-              <p className="text-center text-yellow-300">Waiting for current player...</p>
+              <p className="text-sm text-yellow-300 text-center">Waiting for current player...</p>
             )}
           </div>
         </div>
 
-        {gameState.roundFinished && (
-          <div className="bg-black/20 rounded-2xl p-6 space-y-2">
-            <h2 className="text-2xl font-bold">Results</h2>
-            {results.length === 0 ? (
-              <p>No results yet.</p>
-            ) : (
-              <div className="space-y-1">
-                {results.map((result) => (
-                  <p key={result}>{result}</p>
-                ))}
-              </div>
-            )}
+        {gameState.dealerRevealed && (
+          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
+            <div className="grid md:grid-cols-2 gap-2">
+              {results.map((result) => (
+                <div key={result} className="rounded-xl bg-white/5 p-3">
+                  {result}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
