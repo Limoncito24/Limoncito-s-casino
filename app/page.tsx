@@ -26,6 +26,7 @@ export default function LobbyPage() {
   const [currentLobbyId, setCurrentLobbyId] = useState<string | null>(null);
   const [currentLobbyCode, setCurrentLobbyCode] = useState("");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
+  const [isHost, setIsHost] = useState(false);
 
   async function loadPlayers(lobbyId: string) {
     const { data, error } = await supabase
@@ -66,6 +67,19 @@ export default function LobbyPage() {
     });
 
     setPlayers(formattedPlayers);
+  }
+
+  async function setHostStatus(hostUserId: string) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setIsHost(false);
+      return;
+    }
+
+    setIsHost(user.id === hostUserId);
   }
 
   async function handleCreateLobby() {
@@ -115,6 +129,7 @@ export default function LobbyPage() {
 
       setCurrentLobbyId(lobby.id);
       setCurrentLobbyCode(code);
+      setIsHost(true);
       await loadPlayers(lobby.id);
       setMessage(`Lobby created. Code: ${code}`);
     } catch (err) {
@@ -183,6 +198,7 @@ export default function LobbyPage() {
 
       setCurrentLobbyId(lobby.id);
       setCurrentLobbyCode(cleanCode);
+      await setHostStatus(lobby.host_user_id);
       await loadPlayers(lobby.id);
       setMessage(`Joined lobby: ${cleanCode}`);
     } catch (err) {
@@ -199,9 +215,33 @@ export default function LobbyPage() {
       return;
     }
 
+    const { data: lobby, error } = await supabase
+      .from("lobbies")
+      .select("*")
+      .eq("id", currentLobbyId)
+      .single();
+
+    if (!error && lobby) {
+      await setHostStatus(lobby.host_user_id);
+    }
+
     setMessage("Refreshing players...");
     await loadPlayers(currentLobbyId);
     setMessage(`Lobby: ${currentLobbyCode}`);
+  }
+
+  async function handleStartGame() {
+    if (!currentLobbyId) {
+      setMessage("Create or join a lobby first.");
+      return;
+    }
+
+    if (!isHost) {
+      setMessage("Only the host can start the game.");
+      return;
+    }
+
+    setMessage("Start Game clicked. Game start logic comes next.");
   }
 
   return (
@@ -246,12 +286,29 @@ export default function LobbyPage() {
           Refresh Players
         </button>
 
+        {currentLobbyCode && (
+          <div className="space-y-2">
+            {isHost ? (
+              <button
+                onClick={handleStartGame}
+                className="w-full bg-red-600 py-3 rounded-lg font-semibold"
+              >
+                Start Game
+              </button>
+            ) : (
+              <p className="text-center text-yellow-300">Waiting for host to start game</p>
+            )}
+          </div>
+        )}
+
         <p className="text-center min-h-[24px]">{message}</p>
 
         {currentLobbyCode && (
           <div className="bg-black/20 rounded-xl p-4 space-y-2">
             <h2 className="text-xl font-bold">Lobby Code: {currentLobbyCode}</h2>
-            <h3 className="text-lg font-semibold">Players</h3>
+            <h3 className="text-lg font-semibold">
+              Players {isHost ? "(You are host)" : ""}
+            </h3>
 
             {players.length === 0 ? (
               <p>No players found.</p>
