@@ -6,15 +6,18 @@ import { supabase } from "../lib/supabase";
 function generateLobbyCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
+
   for (let i = 0; i < 6; i++) {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
+
   return code;
 }
 
 export default function LobbyPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
 
   async function handleCreateLobby() {
     if (loading) return;
@@ -70,6 +73,74 @@ export default function LobbyPage() {
     }
   }
 
+  async function handleJoinLobby() {
+    if (loading) return;
+
+    try {
+      setLoading(true);
+      setMessage("Joining lobby...");
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setMessage("You must be logged in.");
+        return;
+      }
+
+      const cleanCode = joinCode.trim().toUpperCase();
+
+      if (!cleanCode) {
+        setMessage("Enter a lobby code.");
+        return;
+      }
+
+      const { data: lobby, error: lobbyError } = await supabase
+        .from("lobbies")
+        .select("*")
+        .eq("code", cleanCode)
+        .single();
+
+      if (lobbyError || !lobby) {
+        setMessage("Lobby not found.");
+        return;
+      }
+
+      const { data: existingPlayer } = await supabase
+        .from("lobby_players")
+        .select("id")
+        .eq("lobby_id", lobby.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (existingPlayer) {
+        setMessage("You are already in this lobby.");
+        return;
+      }
+
+      const { error: joinError } = await supabase
+        .from("lobby_players")
+        .insert({
+          lobby_id: lobby.id,
+          user_id: user.id,
+        });
+
+      if (joinError) {
+        setMessage("Failed to join lobby.");
+        return;
+      }
+
+      setMessage(`Joined lobby: ${cleanCode}`);
+    } catch (err) {
+      console.error(err);
+      setMessage("Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
       <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
@@ -80,7 +151,22 @@ export default function LobbyPage() {
           disabled={loading}
           className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
         >
-          {loading ? "Creating..." : "Create Lobby"}
+          {loading ? "Working..." : "Create Lobby"}
+        </button>
+
+        <input
+          placeholder="Enter lobby code"
+          value={joinCode}
+          onChange={(e) => setJoinCode(e.target.value)}
+          className="w-full p-3 rounded-lg text-black bg-white"
+        />
+
+        <button
+          onClick={handleJoinLobby}
+          disabled={loading}
+          className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+        >
+          {loading ? "Working..." : "Join Lobby"}
         </button>
 
         <p className="text-center min-h-[24px]">{message}</p>
