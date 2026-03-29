@@ -9,24 +9,36 @@ type LobbyPlayer = {
   username: string;
 };
 
+type Hand = {
+  cards: string[];
+  bet: number;
+  done: boolean;
+  busted: boolean;
+  surrendered: boolean;
+  doubled: boolean;
+  result?: "win" | "lose" | "push" | "bust" | "surrender";
+};
+
 type GameState = {
   deck: string[];
-  playerHands: Record<string, string[]>;
-  playerDone: Record<string, boolean>;
+  playerHands: Record<string, Hand[]>;
+  activeHandIndex: Record<string, number>;
   dealerHand: string[];
   roundStarted: boolean;
   roundFinished: boolean;
   dealerRevealed: boolean;
+  betsLocked: boolean;
 };
 
 const EMPTY_GAME_STATE: GameState = {
   deck: [],
   playerHands: {},
-  playerDone: {},
+  activeHandIndex: {},
   dealerHand: [],
   roundStarted: false,
   roundFinished: false,
   dealerRevealed: false,
+  betsLocked: false,
 };
 
 function normalizeGameState(value: unknown): GameState {
@@ -35,11 +47,12 @@ function normalizeGameState(value: unknown): GameState {
   return {
     deck: Array.isArray(raw.deck) ? raw.deck : [],
     playerHands: raw.playerHands || {},
-    playerDone: raw.playerDone || {},
+    activeHandIndex: raw.activeHandIndex || {},
     dealerHand: Array.isArray(raw.dealerHand) ? raw.dealerHand : [],
     roundStarted: raw.roundStarted || false,
     roundFinished: raw.roundFinished || false,
     dealerRevealed: raw.dealerRevealed || false,
+    betsLocked: raw.betsLocked || false,
   };
 }
 
@@ -72,7 +85,6 @@ function getCardSuit(card: string) {
 
 function getCardValue(card: string) {
   const rank = getCardRank(card);
-
   if (rank === "A") return 11;
   if (["K", "Q", "J"].includes(rank)) return 10;
   return Number(rank);
@@ -130,6 +142,8 @@ export default function GamePage() {
   const [currentUsername, setCurrentUsername] = useState("");
   const [turnIndex, setTurnIndex] = useState(0);
   const [gameState, setGameState] = useState<GameState>(EMPTY_GAME_STATE);
+  const [bankrolls, setBankrolls] = useState<Record<string, number>>({});
+  const [betInputs, setBetInputs] = useState<Record<string, number>>({});
 
   useEffect(() => {
     void loadGameShell();
@@ -216,7 +230,7 @@ export default function GamePage() {
 
     const { data: stats, error: statsError } = await supabase
       .from("player_stats")
-      .select("user_id, username")
+      .select("user_id, username, bankroll")
       .in("user_id", userIds);
 
     if (statsError || !stats) {
@@ -234,28 +248,49 @@ export default function GamePage() {
     });
 
     const me = stats.find((s) => s.user_id === user.id);
+    const bankrollMap: Record<string, number> = {};
+    const betMap: Record<string, number> = {};
+
+    stats.forEach((s) => {
+      bankrollMap[s.username || "unknown player"] = s.bankroll ?? 1000;
+      betMap[s.username || "unknown player"] = 100;
+    });
 
     setCurrentUsername(me?.username || "unknown player");
     setPlayers(formattedPlayers);
+    setBankrolls(bankrollMap);
+    setBetInputs(betMap);
     setMessage("Table loaded.");
   }
 
-  function areAllPlayersDone(allPlayers: LobbyPlayer[], state: GameState) {
-    return allPlayers.every((player) => state.playerDone[player.username]);
+  function getCurrentHand(username: string) {
+    const handIndex = gameState.activeHandIndex[username] ?? 0;
+    const hands = gameState.playerHands[username] || [];
+    return {
+      handIndex,
+      hand: hands[handIndex],
+      hands,
+    };
   }
 
-  function getNextActiveTurnIndex(
-    startIndex: number,
-    allPlayers: LobbyPlayer[],
-    state: GameState
-  ) {
-    if (allPlayers.length === 0) return 0;
+  function areAllPlayersDone(state: GameState) {
+    return players.every((player) => {
+      const hands = state.playerHands[player.username] || [];
+      return hands.length > 0 && hands.every((hand) => hand.done);
+    });
+  }
 
-    for (let step = 1; step <= allPlayers.length; step++) {
-      const nextIndex = (startIndex + step) % allPlayers.length;
-      const username = allPlayers[nextIndex]?.username;
+  function getNextActiveTurnIndex(startIndex: number, state: GameState) {
+    if (players.length === 0) return 0;
 
-      if (!state.playerDone[username]) {
+    for (let step = 1; step <= players.length; step++) {
+      const nextIndex = (startIndex + step) % players.length;
+      const username = players[nextIndex]?.username;
+      const handIndex = state.activeHandIndex[username] ?? 0;
+      const hands = state.playerHands[username] || [];
+      const activeHand = hands[handIndex];
+
+      if (activeHand && !activeHand.done) {
         return nextIndex;
       }
     }
@@ -277,6 +312,24 @@ export default function GamePage() {
     return await supabase.from("lobbies").update(updates).eq("id", currentLobbyId);
   }
 
+  async function refreshBankrolls() {
+    const usernames = players.map((p) => p.username);
+    if (usernames.length === 0) return;
+
+    const { data, error } = await supabase
+      .from("player_stats")
+      .select("username, bankroll")
+      .in("username", usernames);
+
+    if (error || !data) return;
+
+    const next: Record<string, number> = {};
+    data.forEach((row) => {
+      next[row.username] = row.bankroll ?? 1000;
+    });
+    setBankrolls(next);
+  }
+
   async function handleStartRound() {
     if (!isHost) {
       setMessage("Only host can start the round.");
@@ -289,12 +342,25 @@ export default function GamePage() {
     }
 
     const deck = createDeck();
-    const playerHands: Record<string, string[]> = {};
-    const playerDone: Record<string, boolean> = {};
+    const playerHands: Record<string, Hand[]> = {};
+    const activeHandIndex: Record<string, number> = {};
 
     for (const player of players) {
-      playerHands[player.username] = [deck.pop()!, deck.pop()!];
-      playerDone[player.username] = false;
+      const bet = Math.max(1, Number(betInputs[player.username] || 100));
+      const bankroll = bankrolls[player.username] ?? 1000;
+      const finalBet = Math.min(bet, bankroll);
+
+      playerHands[player.username] = [
+        {
+          cards: [deck.pop()!, deck.pop()!],
+          bet: finalBet,
+          done: false,
+          busted: false,
+          surrendered: false,
+          doubled: false,
+        },
+      ];
+      activeHandIndex[player.username] = 0;
     }
 
     const dealerHand = [deck.pop()!, deck.pop()!];
@@ -302,11 +368,12 @@ export default function GamePage() {
     const freshState: GameState = {
       deck,
       playerHands,
-      playerDone,
+      activeHandIndex,
       dealerHand,
       roundStarted: true,
       roundFinished: false,
       dealerRevealed: false,
+      betsLocked: true,
     };
 
     const { error } = await updateLobbyGame({
@@ -328,11 +395,13 @@ export default function GamePage() {
     if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
-
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
       setMessage("Not your turn.");
       return;
     }
+
+    const { handIndex, hand, hands } = getCurrentHand(currentTurnPlayer);
+    if (!hand || hand.done) return;
 
     const deck = [...gameState.deck];
     const drawnCard = deck.pop();
@@ -342,31 +411,37 @@ export default function GamePage() {
       return;
     }
 
-    const currentHand = gameState.playerHands[currentTurnPlayer] || [];
-    const updatedHand = [...currentHand, drawnCard];
-    const total = calculateHandTotal(updatedHand);
-    const busted = total > 21;
+    const updatedHand: Hand = {
+      ...hand,
+      cards: [...hand.cards, drawnCard],
+    };
+
+    const total = calculateHandTotal(updatedHand.cards);
+    if (total > 21) {
+      updatedHand.busted = true;
+      updatedHand.done = true;
+      updatedHand.result = "bust";
+    }
+
+    const updatedHands = [...hands];
+    updatedHands[handIndex] = updatedHand;
 
     const updatedState: GameState = {
       ...gameState,
       deck,
       playerHands: {
         ...gameState.playerHands,
-        [currentTurnPlayer]: updatedHand,
-      },
-      playerDone: {
-        ...gameState.playerDone,
-        [currentTurnPlayer]: busted ? true : gameState.playerDone[currentTurnPlayer],
+        [currentTurnPlayer]: updatedHands,
       },
     };
 
     let nextIndex = turnIndex;
 
-    if (busted) {
-      if (areAllPlayersDone(players, updatedState)) {
+    if (updatedHand.done) {
+      if (areAllPlayersDone(updatedState)) {
         updatedState.roundFinished = true;
       } else {
-        nextIndex = getNextActiveTurnIndex(turnIndex, players, updatedState);
+        nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
       }
     }
 
@@ -383,7 +458,7 @@ export default function GamePage() {
     setGameState(updatedState);
     setTurnIndex(nextIndex);
     setMessage(
-      busted
+      updatedHand.busted
         ? `${currentTurnPlayer} drew ${drawnCard} and busted`
         : `${currentTurnPlayer} drew ${drawnCard}`
     );
@@ -393,26 +468,33 @@ export default function GamePage() {
     if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
-
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
       setMessage("Not your turn.");
       return;
     }
 
+    const { handIndex, hand, hands } = getCurrentHand(currentTurnPlayer);
+    if (!hand || hand.done) return;
+
+    const updatedHands = [...hands];
+    updatedHands[handIndex] = {
+      ...hand,
+      done: true,
+    };
+
     const updatedState: GameState = {
       ...gameState,
-      playerDone: {
-        ...gameState.playerDone,
-        [currentTurnPlayer]: true,
+      playerHands: {
+        ...gameState.playerHands,
+        [currentTurnPlayer]: updatedHands,
       },
     };
 
     let nextIndex = turnIndex;
-
-    if (areAllPlayersDone(players, updatedState)) {
+    if (areAllPlayersDone(updatedState)) {
       updatedState.roundFinished = true;
     } else {
-      nextIndex = getNextActiveTurnIndex(turnIndex, players, updatedState);
+      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
     }
 
     const { error } = await updateLobbyGame({
@@ -428,6 +510,131 @@ export default function GamePage() {
     setGameState(updatedState);
     setTurnIndex(nextIndex);
     setMessage(`${currentTurnPlayer} stood.`);
+  }
+
+  async function handleDoubleDown() {
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+
+    const currentTurnPlayer = players[turnIndex]?.username;
+    if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
+      setMessage("Not your turn.");
+      return;
+    }
+
+    const { handIndex, hand, hands } = getCurrentHand(currentTurnPlayer);
+    if (!hand || hand.done) return;
+
+    const bankroll = bankrolls[currentTurnPlayer] ?? 1000;
+    if (hand.bet > bankroll) {
+      setMessage("Not enough bankroll to double down.");
+      return;
+    }
+
+    const deck = [...gameState.deck];
+    const drawnCard = deck.pop();
+    if (!drawnCard) {
+      setMessage("Deck is empty.");
+      return;
+    }
+
+    const doubledHand: Hand = {
+      ...hand,
+      bet: hand.bet * 2,
+      doubled: true,
+      done: true,
+      cards: [...hand.cards, drawnCard],
+    };
+
+    const total = calculateHandTotal(doubledHand.cards);
+    if (total > 21) {
+      doubledHand.busted = true;
+      doubledHand.result = "bust";
+    }
+
+    const updatedHands = [...hands];
+    updatedHands[handIndex] = doubledHand;
+
+    const updatedState: GameState = {
+      ...gameState,
+      deck,
+      playerHands: {
+        ...gameState.playerHands,
+        [currentTurnPlayer]: updatedHands,
+      },
+    };
+
+    let nextIndex = turnIndex;
+    if (areAllPlayersDone(updatedState)) {
+      updatedState.roundFinished = true;
+    } else {
+      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
+    }
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+      turn_index: nextIndex,
+    });
+
+    if (error) {
+      setMessage("Failed to double down.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setTurnIndex(nextIndex);
+    setMessage(`${currentTurnPlayer} doubled down and drew ${drawnCard}`);
+  }
+
+  async function handleSurrender() {
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+
+    const currentTurnPlayer = players[turnIndex]?.username;
+    if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
+      setMessage("Not your turn.");
+      return;
+    }
+
+    const { handIndex, hand, hands } = getCurrentHand(currentTurnPlayer);
+    if (!hand || hand.done) return;
+
+    const surrenderedHand: Hand = {
+      ...hand,
+      surrendered: true,
+      done: true,
+      result: "surrender",
+    };
+
+    const updatedHands = [...hands];
+    updatedHands[handIndex] = surrenderedHand;
+
+    const updatedState: GameState = {
+      ...gameState,
+      playerHands: {
+        ...gameState.playerHands,
+        [currentTurnPlayer]: updatedHands,
+      },
+    };
+
+    let nextIndex = turnIndex;
+    if (areAllPlayersDone(updatedState)) {
+      updatedState.roundFinished = true;
+    } else {
+      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
+    }
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+      turn_index: nextIndex,
+    });
+
+    if (error) {
+      setMessage("Failed to surrender.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setTurnIndex(nextIndex);
+    setMessage(`${currentTurnPlayer} surrendered.`);
   }
 
   async function handleDealerPlay() {
@@ -448,12 +655,97 @@ export default function GamePage() {
       dealerHand.push(deck.pop()!);
     }
 
+    const dealerTotal = calculateHandTotal(dealerHand);
+    const dealerBust = dealerTotal > 21;
+
     const updatedState: GameState = {
       ...gameState,
       deck,
       dealerHand,
       dealerRevealed: true,
     };
+
+    const bankrollUpdates: Promise<unknown>[] = [];
+
+    for (const player of players) {
+      const username = player.username;
+      const hands = updatedState.playerHands[username] || [];
+      const bankroll = bankrolls[username] ?? 1000;
+
+      let bankrollChange = 0;
+      let won = 0;
+      let lost = 0;
+      let pushed = 0;
+      let played = 0;
+
+      const resolvedHands = hands.map((hand) => {
+        played += 1;
+
+        if (hand.surrendered) {
+          bankrollChange -= Math.floor(hand.bet / 2);
+          lost += 1;
+          return { ...hand, result: "surrender" as const };
+        }
+
+        if (hand.busted) {
+          bankrollChange -= hand.bet;
+          lost += 1;
+          return { ...hand, result: "bust" as const };
+        }
+
+        const total = calculateHandTotal(hand.cards);
+
+        if (dealerBust || total > dealerTotal) {
+          bankrollChange += hand.bet;
+          won += 1;
+          return { ...hand, result: "win" as const };
+        }
+
+        if (total < dealerTotal) {
+          bankrollChange -= hand.bet;
+          lost += 1;
+          return { ...hand, result: "lose" as const };
+        }
+
+        pushed += 1;
+        return { ...hand, result: "push" as const };
+      });
+
+      updatedState.playerHands[username] = resolvedHands;
+
+      bankrollUpdates.push(
+        supabase
+          .from("player_stats")
+          .update({
+            bankroll: bankroll + bankrollChange,
+            hands_played: played,
+          })
+          .eq("username", username)
+      );
+
+      const { data: currentStats } = await supabase
+        .from("player_stats")
+        .select("hands_played, hands_won, hands_lost, hands_pushed, bankroll")
+        .eq("username", username)
+        .single();
+
+      if (currentStats) {
+        bankrollUpdates.push(
+          supabase
+            .from("player_stats")
+            .update({
+              bankroll: (currentStats.bankroll ?? bankroll) + bankrollChange,
+              hands_played: (currentStats.hands_played ?? 0) + played,
+              hands_won: (currentStats.hands_won ?? 0) + won,
+              hands_lost: (currentStats.hands_lost ?? 0) + lost,
+              hands_pushed: (currentStats.hands_pushed ?? 0) + pushed,
+            })
+            .eq("username", username)
+        );
+      }
+    }
+
+    await Promise.all(bankrollUpdates);
 
     const { error } = await updateLobbyGame({
       game_state: updatedState,
@@ -465,6 +757,7 @@ export default function GamePage() {
     }
 
     setGameState(updatedState);
+    await refreshBankrolls();
     setMessage("Dealer finished.");
   }
 
@@ -506,19 +799,12 @@ export default function GamePage() {
   const results = useMemo(() => {
     if (!gameState.dealerRevealed) return [];
 
-    const dealerTotal = calculateHandTotal(gameState.dealerHand);
-    const dealerBust = dealerTotal > 21;
-
-    return players.map((player) => {
-      const hand = gameState.playerHands[player.username] || [];
-      const total = calculateHandTotal(hand);
-      const busted = total > 21;
-
-      if (busted) return `${player.username}: bust`;
-      if (dealerBust) return `${player.username}: win`;
-      if (total > dealerTotal) return `${player.username}: win`;
-      if (total < dealerTotal) return `${player.username}: lose`;
-      return `${player.username}: push`;
+    return players.flatMap((player) => {
+      const hands = gameState.playerHands[player.username] || [];
+      return hands.map((hand, index) => {
+        const total = calculateHandTotal(hand.cards);
+        return `${player.username} hand ${index + 1}: ${hand.result || "done"} (${total})`;
+      });
     });
   }, [players, gameState]);
 
@@ -553,11 +839,9 @@ export default function GamePage() {
 
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
             {players.map((player, index) => {
-              const hand = gameState.playerHands[player.username] || [];
-              const total = calculateHandTotal(hand);
+              const hands = gameState.playerHands[player.username] || [];
+              const activeIndex = gameState.activeHandIndex[player.username] ?? 0;
               const isCurrentTurn = index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
-              const isDone = gameState.playerDone[player.username];
-              const busted = total > 21;
 
               return (
                 <div
@@ -571,14 +855,12 @@ export default function GamePage() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <p className="font-bold text-lg">{player.username}</p>
-                      <p className="text-sm text-white/70">Total: {hand.length ? total : 0}</p>
+                      <p className="text-sm text-yellow-300">
+                        Bankroll: ${bankrolls[player.username] ?? 1000}
+                      </p>
                     </div>
                     <div className="text-right text-sm">
-                      {busted ? (
-                        <p className="text-red-300">Busted</p>
-                      ) : isDone ? (
-                        <p className="text-yellow-300">Standing</p>
-                      ) : isCurrentTurn ? (
+                      {isCurrentTurn ? (
                         <p className="text-green-300">Current turn</p>
                       ) : (
                         <p className="text-white/60">Waiting</p>
@@ -586,13 +868,64 @@ export default function GamePage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 flex-wrap min-h-[110px]">
-                    {hand.length === 0 ? (
+                  {!gameState.betsLocked && (
+                    <div className="mb-3">
+                      <label className="text-sm text-white/70 block mb-1">Bet</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={betInputs[player.username] ?? 100}
+                        onChange={(e) =>
+                          setBetInputs((prev) => ({
+                            ...prev,
+                            [player.username]: Number(e.target.value || 1),
+                          }))
+                        }
+                        disabled={player.username !== currentUsername}
+                        className="w-full rounded-lg px-3 py-2 text-black"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {hands.length === 0 ? (
                       <p className="text-white/60">No cards yet</p>
                     ) : (
-                      hand.map((card, handIndex) => (
-                        <Card key={`${player.username}-${card}-${handIndex}`} card={card} />
-                      ))
+                      hands.map((hand, handIndex) => {
+                        const total = calculateHandTotal(hand.cards);
+                        const isActiveHand = handIndex === activeIndex && isCurrentTurn && !hand.done;
+
+                        return (
+                          <div
+                            key={`${player.username}-hand-${handIndex}`}
+                            className={`rounded-xl p-3 border ${
+                              isActiveHand ? "border-yellow-400 bg-yellow-400/10" : "border-white/10 bg-white/5"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="font-semibold">
+                                Hand {handIndex + 1} · Total {total}
+                              </p>
+                              <p className="text-sm text-white/70">
+                                Bet ${hand.bet}
+                              </p>
+                            </div>
+
+                            <div className="flex gap-2 flex-wrap min-h-[110px]">
+                              {hand.cards.map((card, cardIndex) => (
+                                <Card key={`${player.username}-${handIndex}-${card}-${cardIndex}`} card={card} />
+                              ))}
+                            </div>
+
+                            <div className="mt-2 text-sm text-white/75">
+                              {hand.busted && <p className="text-red-300">Busted</p>}
+                              {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
+                              {hand.doubled && <p className="text-blue-300">Doubled down</p>}
+                              {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -650,10 +983,26 @@ export default function GamePage() {
               Stand
             </button>
 
+            <button
+              onClick={handleDoubleDown}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Double Down
+            </button>
+
+            <button
+              onClick={handleSurrender}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Surrender
+            </button>
+
             {isHost && gameState.roundFinished && !gameState.dealerRevealed && (
               <button
                 onClick={handleDealerPlay}
-                className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold"
               >
                 Run Dealer
               </button>
