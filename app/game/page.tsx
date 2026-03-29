@@ -29,6 +29,17 @@ const EMPTY_GAME_STATE: GameState = {
   roundFinished: false,
 };
 
+function normalizeGameState(value: unknown): GameState {
+  const raw = (value as Partial<GameState>) || {};
+
+  return {
+    players: raw.players || {},
+    dealerTotal: raw.dealerTotal || 0,
+    roundStarted: raw.roundStarted || false,
+    roundFinished: raw.roundFinished || false,
+  };
+}
+
 export default function GamePage() {
   const router = useRouter();
 
@@ -58,7 +69,7 @@ export default function GamePage() {
       if (error || !data) return;
 
       setTurnIndex(data.turn_index ?? 0);
-      setGameState((data.game_state as GameState) || EMPTY_GAME_STATE);
+      setGameState(normalizeGameState(data.game_state));
 
       if (!data.game_started) {
         router.push("/lobby");
@@ -109,7 +120,7 @@ export default function GamePage() {
     setCurrentLobbyCode(lobby.code);
     setIsHost(lobby.host_user_id === user.id);
     setTurnIndex(lobby.turn_index ?? 0);
-    setGameState((lobby.game_state as GameState) || EMPTY_GAME_STATE);
+    setGameState(normalizeGameState(lobby.game_state));
 
     const { data: lobbyPlayers, error: playersError } = await supabase
       .from("lobby_players")
@@ -178,14 +189,17 @@ export default function GamePage() {
   }
 
   async function updateLobbyGame(
-    updates: Partial<{ turn_index: number; game_state: GameState; game_started: boolean }>
+    updates: Partial<{
+      turn_index: number;
+      game_state: GameState;
+      game_started: boolean;
+    }>
   ) {
-    if (!currentLobbyId) return { error: new Error("No lobby id") };
+    if (!currentLobbyId) {
+      return { error: new Error("No lobby id") };
+    }
 
-    return await supabase
-      .from("lobbies")
-      .update(updates)
-      .eq("id", currentLobbyId);
+    return await supabase.from("lobbies").update(updates).eq("id", currentLobbyId);
   }
 
   async function handleStartRound() {
@@ -405,7 +419,6 @@ export default function GamePage() {
     return players.map((player) => {
       const p = gameState.players[player.username];
       if (!p) return `${player.username}: no hand`;
-
       if (p.busted) return `${player.username}: bust`;
       if (dealerBust) return `${player.username}: win`;
       if (p.total > gameState.dealerTotal) return `${player.username}: win`;
@@ -463,7 +476,14 @@ export default function GamePage() {
             <p>Your Name: {currentUsername || "..."}</p>
             <p>Dealer Total: {gameState.dealerTotal}</p>
             <p>Host: {isHost ? "You" : "Another player"}</p>
-            <p>Round: {gameState.roundStarted ? (gameState.roundFinished ? "Finished" : "Active") : "Not started"}</p>
+            <p>
+              Round:{" "}
+              {gameState.roundStarted
+                ? gameState.roundFinished
+                  ? "Finished"
+                  : "Active"
+                : "Not started"}
+            </p>
 
             {isHost && (
               <button
