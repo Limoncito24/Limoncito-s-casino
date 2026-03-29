@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type LobbyPlayer = {
@@ -27,6 +27,24 @@ export default function LobbyPage() {
   const [currentLobbyCode, setCurrentLobbyCode] = useState("");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [isHost, setIsHost] = useState(false);
+
+  useEffect(() => {
+    if (!currentLobbyId) return;
+
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from("lobbies")
+        .select("game_started")
+        .eq("id", currentLobbyId)
+        .single();
+
+      if (data?.game_started) {
+        window.location.href = "/game";
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [currentLobbyId]);
 
   async function loadPlayers(lobbyId: string) {
     const { data, error } = await supabase
@@ -241,7 +259,19 @@ export default function LobbyPage() {
       return;
     }
 
-    setMessage("Start Game clicked. Game start logic comes next.");
+    setMessage("Starting game...");
+
+    const { error } = await supabase
+      .from("lobbies")
+      .update({ game_started: true })
+      .eq("id", currentLobbyId);
+
+    if (error) {
+      setMessage("Failed to start game.");
+      return;
+    }
+
+    window.location.href = "/game";
   }
 
   return (
@@ -296,7 +326,9 @@ export default function LobbyPage() {
                 Start Game
               </button>
             ) : (
-              <p className="text-center text-yellow-300">Waiting for host to start game</p>
+              <p className="text-center text-yellow-300">
+                Waiting for host to start game
+              </p>
             )}
           </div>
         )}
