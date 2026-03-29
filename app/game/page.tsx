@@ -8,6 +8,8 @@ type LobbyPlayer = {
   username: string;
 };
 
+type GameState = Record<string, number>;
+
 export default function GamePage() {
   const [message, setMessage] = useState("Loading game...");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
@@ -15,6 +17,7 @@ export default function GamePage() {
   const [currentLobbyCode, setCurrentLobbyCode] = useState("");
   const [isHost, setIsHost] = useState(false);
   const [turnIndex, setTurnIndex] = useState(0);
+  const [gameState, setGameState] = useState<GameState>({});
 
   useEffect(() => {
     loadGameShell();
@@ -26,13 +29,14 @@ export default function GamePage() {
     const interval = setInterval(async () => {
       const { data, error } = await supabase
         .from("lobbies")
-        .select("turn_index, game_started")
+        .select("turn_index, game_started, game_state")
         .eq("id", currentLobbyId)
         .single();
 
       if (error || !data) return;
 
       setTurnIndex(data.turn_index ?? 0);
+      setGameState((data.game_state as GameState) || {});
 
       if (!data.game_started) {
         window.location.href = "/lobby";
@@ -83,6 +87,7 @@ export default function GamePage() {
     setCurrentLobbyCode(lobby.code);
     setIsHost(lobby.host_user_id === user.id);
     setTurnIndex(lobby.turn_index ?? 0);
+    setGameState((lobby.game_state as GameState) || {});
 
     const { data: lobbyPlayers, error: playersError } = await supabase
       .from("lobby_players")
@@ -143,6 +148,33 @@ export default function GamePage() {
     setTurnIndex(nextIndex);
   }
 
+  async function handleHit() {
+    if (!currentLobbyId || players.length === 0) return;
+
+    const currentPlayer = players[turnIndex]?.username;
+    if (!currentPlayer) return;
+
+    const newValue = Math.floor(Math.random() * 10) + 1;
+
+    const updatedState: GameState = {
+      ...gameState,
+      [currentPlayer]: (gameState[currentPlayer] || 0) + newValue,
+    };
+
+    const { error } = await supabase
+      .from("lobbies")
+      .update({ game_state: updatedState })
+      .eq("id", currentLobbyId);
+
+    if (error) {
+      setMessage("Failed to hit.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setMessage(`${currentPlayer} got +${newValue}`);
+  }
+
   async function handleEndGame() {
     if (!currentLobbyId) {
       setMessage("No lobby found.");
@@ -156,7 +188,7 @@ export default function GamePage() {
 
     const { error } = await supabase
       .from("lobbies")
-      .update({ game_started: false, turn_index: 0 })
+      .update({ game_started: false, turn_index: 0, game_state: {} })
       .eq("id", currentLobbyId);
 
     if (error) {
@@ -194,7 +226,7 @@ export default function GamePage() {
                       index === turnIndex ? "bg-yellow-500 text-black" : "bg-white/10"
                     }`}
                   >
-                    {player.username}
+                    {player.username} ({gameState[player.username] || 0})
                     {index === turnIndex ? " ← current turn" : ""}
                   </div>
                 ))}
@@ -220,6 +252,13 @@ export default function GamePage() {
                 Waiting for host to change turn
               </p>
             )}
+
+            <button
+              onClick={handleHit}
+              className="w-full bg-green-600 py-3 rounded-lg font-semibold"
+            >
+              Hit (+ random)
+            </button>
 
             {isHost ? (
               <button
