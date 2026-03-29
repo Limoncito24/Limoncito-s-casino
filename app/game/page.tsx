@@ -39,7 +39,7 @@ export default function GamePage() {
       setGameState((data.game_state as GameState) || {});
 
       if (!data.game_started) {
-        window.location.href = "/lobby";
+        window.location.href = "/";
       }
     }, 1500);
 
@@ -203,7 +203,7 @@ export default function GamePage() {
       return;
     }
 
-    window.location.href = "/lobby";
+    window.location.href = "/";
   }
 
   const currentTurnPlayer =
