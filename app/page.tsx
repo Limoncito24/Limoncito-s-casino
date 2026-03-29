@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
+type LobbyPlayer = {
+  id: string;
+  username: string;
+};
+
 function generateLobbyCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -18,6 +23,50 @@ export default function LobbyPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  const [currentLobbyId, setCurrentLobbyId] = useState<string | null>(null);
+  const [currentLobbyCode, setCurrentLobbyCode] = useState("");
+  const [players, setPlayers] = useState<LobbyPlayer[]>([]);
+
+  async function loadPlayers(lobbyId: string) {
+    const { data, error } = await supabase
+      .from("lobby_players")
+      .select("id, user_id")
+      .eq("lobby_id", lobbyId)
+      .order("joined_at", { ascending: true });
+
+    if (error || !data) {
+      setMessage("Failed to load players.");
+      return;
+    }
+
+    const userIds = data.map((p) => p.user_id);
+
+    if (userIds.length === 0) {
+      setPlayers([]);
+      return;
+    }
+
+    const { data: playerStats, error: statsError } = await supabase
+      .from("player_stats")
+      .select("user_id, username")
+      .in("user_id", userIds);
+
+    if (statsError || !playerStats) {
+      setMessage("Failed to load player names.");
+      return;
+    }
+
+    const formattedPlayers = data.map((p) => {
+      const match = playerStats.find((s) => s.user_id === p.user_id);
+
+      return {
+        id: p.id,
+        username: match?.username || "unknown player",
+      };
+    });
+
+    setPlayers(formattedPlayers);
+  }
 
   async function handleCreateLobby() {
     if (loading) return;
@@ -64,6 +113,9 @@ export default function LobbyPage() {
         return;
       }
 
+      setCurrentLobbyId(lobby.id);
+      setCurrentLobbyCode(code);
+      await loadPlayers(lobby.id);
       setMessage(`Lobby created. Code: ${code}`);
     } catch (err) {
       console.error(err);
@@ -115,23 +167,23 @@ export default function LobbyPage() {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (existingPlayer) {
-        setMessage("You are already in this lobby.");
-        return;
+      if (!existingPlayer) {
+        const { error: joinError } = await supabase
+          .from("lobby_players")
+          .insert({
+            lobby_id: lobby.id,
+            user_id: user.id,
+          });
+
+        if (joinError) {
+          setMessage("Failed to join lobby.");
+          return;
+        }
       }
 
-      const { error: joinError } = await supabase
-        .from("lobby_players")
-        .insert({
-          lobby_id: lobby.id,
-          user_id: user.id,
-        });
-
-      if (joinError) {
-        setMessage("Failed to join lobby.");
-        return;
-      }
-
+      setCurrentLobbyId(lobby.id);
+      setCurrentLobbyCode(cleanCode);
+      await loadPlayers(lobby.id);
       setMessage(`Joined lobby: ${cleanCode}`);
     } catch (err) {
       console.error(err);
@@ -141,43 +193,78 @@ export default function LobbyPage() {
     }
   }
 
-return (
-  <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
-    <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
-      <h1 className="text-3xl font-bold text-center">Private Lobby</h1>
+  async function handleRefreshPlayers() {
+    if (!currentLobbyId) {
+      setMessage("Join or create a lobby first.");
+      return;
+    }
 
-      <a
-        href="/signin"
-        className="block w-full bg-yellow-500 text-black text-center py-3 rounded-lg font-semibold"
-      >
-        Go to Sign In
-      </a>
+    setMessage("Refreshing players...");
+    await loadPlayers(currentLobbyId);
+    setMessage(`Lobby: ${currentLobbyCode}`);
+  }
 
-      <button
-        onClick={handleCreateLobby}
-        disabled={loading}
-        className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
-      >
-        {loading ? "Working..." : "Create Lobby"}
-      </button>
+  return (
+    <main className="min-h-screen bg-green-950 text-white p-8 flex items-center justify-center">
+      <div className="w-full max-w-md bg-black/20 rounded-2xl p-6 space-y-4">
+        <h1 className="text-3xl font-bold text-center">Private Lobby</h1>
 
-      <input
-        placeholder="Enter lobby code"
-        value={joinCode}
-        onChange={(e) => setJoinCode(e.target.value)}
-        className="w-full p-3 rounded-lg text-black bg-white"
-      />
+        <a
+          href="/signin"
+          className="block w-full bg-yellow-500 text-black text-center py-3 rounded-lg font-semibold"
+        >
+          Go to Sign In
+        </a>
 
-      <button
-        onClick={handleJoinLobby}
-        disabled={loading}
-        className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
-      >
-        {loading ? "Working..." : "Join Lobby"}
-      </button>
+        <button
+          onClick={handleCreateLobby}
+          disabled={loading}
+          className="w-full bg-blue-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+        >
+          {loading ? "Working..." : "Create Lobby"}
+        </button>
 
-      <p className="text-center min-h-[24px]">{message}</p>
-    </div>
-  </main>
-);
+        <input
+          placeholder="Enter lobby code"
+          value={joinCode}
+          onChange={(e) => setJoinCode(e.target.value)}
+          className="w-full p-3 rounded-lg text-black bg-white"
+        />
+
+        <button
+          onClick={handleJoinLobby}
+          disabled={loading}
+          className="w-full bg-green-600 py-3 rounded-lg font-semibold disabled:opacity-60"
+        >
+          {loading ? "Working..." : "Join Lobby"}
+        </button>
+
+        <button
+          onClick={handleRefreshPlayers}
+          className="w-full bg-purple-600 py-3 rounded-lg font-semibold"
+        >
+          Refresh Players
+        </button>
+
+        <p className="text-center min-h-[24px]">{message}</p>
+
+        {currentLobbyCode && (
+          <div className="bg-black/20 rounded-xl p-4 space-y-2">
+            <h2 className="text-xl font-bold">Lobby Code: {currentLobbyCode}</h2>
+            <h3 className="text-lg font-semibold">Players</h3>
+
+            {players.length === 0 ? (
+              <p>No players found.</p>
+            ) : (
+              <div className="space-y-1">
+                {players.map((player) => (
+                  <p key={player.id}>- {player.username}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
