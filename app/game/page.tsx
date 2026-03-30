@@ -131,6 +131,18 @@ function isBlackjack(cards: string[]) {
   return cards.length === 2 && calculateHandTotal(cards) === 21;
 }
 
+function canSplitRanks(cardA: string, cardB: string) {
+  const rankA = getCardRank(cardA);
+  const rankB = getCardRank(cardB);
+  const tenValue = ["10", "J", "Q", "K"];
+
+  if (tenValue.includes(rankA) && tenValue.includes(rankB)) {
+    return true;
+  }
+
+  return rankA === rankB;
+}
+
 function getCardColor(card: string) {
   const suit = getCardSuit(card);
   return suit === "♥" || suit === "♦" ? "text-red-500" : "text-black";
@@ -197,6 +209,7 @@ export default function GamePage() {
 
       setTurnIndex(data.turn_index ?? 0);
       setGameState(normalizeGameState(data.game_state));
+      await refreshBankrolls();
 
       if (!data.game_started) {
         router.push("/lobby");
@@ -204,7 +217,7 @@ export default function GamePage() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, [currentLobbyId, router]);
+  }, [currentLobbyId, router, players]);
 
   async function loadGameShell() {
     const {
@@ -320,6 +333,13 @@ export default function GamePage() {
     });
   }
 
+  function getNextUndoneHandIndex(hands: Hand[], currentIndex: number) {
+    for (let i = currentIndex + 1; i < hands.length; i++) {
+      if (!hands[i].done) return i;
+    }
+    return -1;
+  }
+
   function getNextActiveTurnIndex(startIndex: number, state: GameState) {
     if (players.length === 0) return 0;
 
@@ -336,6 +356,34 @@ export default function GamePage() {
     }
 
     return startIndex;
+  }
+
+  function advanceAfterHandDone(
+    username: string,
+    finishedHandIndex: number,
+    state: GameState,
+    currentTurn: number
+  ) {
+    const hands = state.playerHands[username] || [];
+    const nextHandIndex = getNextUndoneHandIndex(hands, finishedHandIndex);
+
+    if (nextHandIndex !== -1) {
+      state.activeHandIndex = {
+        ...state.activeHandIndex,
+        [username]: nextHandIndex,
+      };
+      return { nextTurnIndex: currentTurn, roundFinished: false };
+    }
+
+    if (areAllPlayersDone(state)) {
+      state.roundFinished = true;
+      return { nextTurnIndex: currentTurn, roundFinished: true };
+    }
+
+    return {
+      nextTurnIndex: getNextActiveTurnIndex(currentTurn, state),
+      roundFinished: false,
+    };
   }
 
   async function handleConfirmBet(username: string) {
@@ -433,11 +481,15 @@ export default function GamePage() {
           busterPayout: 0,
         };
 
-        if (dealerBust && hand.busterBet === 5 && busterMultiplier > 0) {
-          const busterProfit = hand.busterBet * busterMultiplier;
-          bankrollChange += busterProfit;
-          nextHand.busterWon = true;
-          nextHand.busterPayout = busterProfit;
+        if (hand.busterBet === 5) {
+          if (dealerBust && busterMultiplier > 0) {
+            const busterProfit = hand.busterBet * busterMultiplier;
+            bankrollChange += busterProfit;
+            nextHand.busterWon = true;
+            nextHand.busterPayout = busterProfit;
+          } else {
+            bankrollChange -= hand.busterBet;
+          }
         }
 
         if (hand.surrendered) {
@@ -721,11 +773,13 @@ export default function GamePage() {
     let nextIndex = turnIndex;
 
     if (updatedHand.done) {
-      if (areAllPlayersDone(updatedState)) {
-        updatedState.roundFinished = true;
-      } else {
-        nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
-      }
+      const advanced = advanceAfterHandDone(
+        currentTurnPlayer,
+        handIndex,
+        updatedState,
+        turnIndex
+      );
+      nextIndex = advanced.nextTurnIndex;
     }
 
     const { error } = await updateLobbyGame({
@@ -773,16 +827,16 @@ export default function GamePage() {
       },
     };
 
-    let nextIndex = turnIndex;
-    if (areAllPlayersDone(updatedState)) {
-      updatedState.roundFinished = true;
-    } else {
-      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
-    }
+    const advanced = advanceAfterHandDone(
+      currentTurnPlayer,
+      handIndex,
+      updatedState,
+      turnIndex
+    );
 
     const { error } = await updateLobbyGame({
       game_state: updatedState,
-      turn_index: nextIndex,
+      turn_index: advanced.nextTurnIndex,
     });
 
     if (error) {
@@ -791,8 +845,12 @@ export default function GamePage() {
     }
 
     setGameState(updatedState);
-    setTurnIndex(nextIndex);
-    setMessage(`${currentTurnPlayer} stood.`);
+    setTurnIndex(advanced.nextTurnIndex);
+    setMessage(
+      advanced.nextTurnIndex === turnIndex && !updatedState.roundFinished
+        ? `${currentTurnPlayer} moved to next split hand.`
+        : `${currentTurnPlayer} stood.`
+    );
   }
 
   async function handleDoubleDown() {
@@ -847,16 +905,16 @@ export default function GamePage() {
       },
     };
 
-    let nextIndex = turnIndex;
-    if (areAllPlayersDone(updatedState)) {
-      updatedState.roundFinished = true;
-    } else {
-      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
-    }
+    const advanced = advanceAfterHandDone(
+      currentTurnPlayer,
+      handIndex,
+      updatedState,
+      turnIndex
+    );
 
     const { error } = await updateLobbyGame({
       game_state: updatedState,
-      turn_index: nextIndex,
+      turn_index: advanced.nextTurnIndex,
     });
 
     if (error) {
@@ -865,7 +923,7 @@ export default function GamePage() {
     }
 
     setGameState(updatedState);
-    setTurnIndex(nextIndex);
+    setTurnIndex(advanced.nextTurnIndex);
     setMessage(`${currentTurnPlayer} doubled down and drew ${drawnCard}`);
   }
 
@@ -899,16 +957,16 @@ export default function GamePage() {
       },
     };
 
-    let nextIndex = turnIndex;
-    if (areAllPlayersDone(updatedState)) {
-      updatedState.roundFinished = true;
-    } else {
-      nextIndex = getNextActiveTurnIndex(turnIndex, updatedState);
-    }
+    const advanced = advanceAfterHandDone(
+      currentTurnPlayer,
+      handIndex,
+      updatedState,
+      turnIndex
+    );
 
     const { error } = await updateLobbyGame({
       game_state: updatedState,
-      turn_index: nextIndex,
+      turn_index: advanced.nextTurnIndex,
     });
 
     if (error) {
@@ -917,8 +975,103 @@ export default function GamePage() {
     }
 
     setGameState(updatedState);
-    setTurnIndex(nextIndex);
+    setTurnIndex(advanced.nextTurnIndex);
     setMessage(`${currentTurnPlayer} surrendered.`);
+  }
+
+  async function handleSplit() {
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+
+    const currentTurnPlayer = players[turnIndex]?.username;
+    if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
+      setMessage("Not your turn.");
+      return;
+    }
+
+    const { handIndex, hand, hands } = getCurrentHand(currentTurnPlayer);
+    if (!hand || hand.done || hand.doubled || hand.cards.length !== 2) {
+      setMessage("You can only split your first 2 cards.");
+      return;
+    }
+
+    const [card1, card2] = hand.cards;
+    if (!canSplitRanks(card1, card2)) {
+      setMessage("Cards must match rank or both be 10-value cards to split.");
+      return;
+    }
+
+    const bankroll = bankrolls[currentTurnPlayer] ?? 1000;
+    if (bankroll < hand.bet * 2 + hand.busterBet) {
+      setMessage("Not enough bankroll to split.");
+      return;
+    }
+
+    const deck = [...gameState.deck];
+    const newCard1 = deck.pop();
+    const newCard2 = deck.pop();
+
+    if (!newCard1 || !newCard2) {
+      setMessage("Not enough cards left in shoe.");
+      return;
+    }
+
+    const firstHand: Hand = {
+      cards: [card1, newCard1],
+      bet: hand.bet,
+      busterBet: hand.busterBet,
+      done: false,
+      busted: false,
+      surrendered: false,
+      doubled: false,
+      blackjack: false,
+      result: undefined,
+      busterWon: false,
+      busterPayout: 0,
+    };
+
+    const secondHand: Hand = {
+      cards: [card2, newCard2],
+      bet: hand.bet,
+      busterBet: 0,
+      done: false,
+      busted: false,
+      surrendered: false,
+      doubled: false,
+      blackjack: false,
+      result: undefined,
+      busterWon: false,
+      busterPayout: 0,
+    };
+
+    const updatedHands = [...hands];
+    updatedHands.splice(handIndex, 1, firstHand, secondHand);
+
+    const updatedState: GameState = {
+      ...gameState,
+      deck,
+      activeHandIndex: {
+        ...gameState.activeHandIndex,
+        [currentTurnPlayer]: handIndex,
+      },
+      playerHands: {
+        ...gameState.playerHands,
+        [currentTurnPlayer]: updatedHands,
+      },
+    };
+
+    const { error } = await updateLobbyGame({
+      game_state: updatedState,
+      turn_index: turnIndex,
+    });
+
+    if (error) {
+      setMessage("Failed to split.");
+      return;
+    }
+
+    setGameState(updatedState);
+    setTurnIndex(turnIndex);
+    setMessage("Hand split. Play hand 1 first.");
   }
 
   async function handleDealerPlay() {
@@ -987,6 +1140,15 @@ export default function GamePage() {
       : gameState.dealerHand.length > 0
         ? calculateHandTotal([gameState.dealerHand[0]])
         : 0;
+
+  const canSplitActiveHand = (() => {
+    if (!isMyTurn || !gameState.roundStarted || gameState.roundFinished) return false;
+    const { hand } = getCurrentHand(currentUsername);
+    if (!hand || hand.done || hand.doubled || hand.cards.length !== 2) return false;
+    if (!canSplitRanks(hand.cards[0], hand.cards[1])) return false;
+    const bankroll = bankrolls[currentUsername] ?? 1000;
+    return bankroll >= hand.bet * 2 + hand.busterBet;
+  })();
 
   const results = useMemo(() => {
     if (!gameState.dealerRevealed) return [];
@@ -1310,6 +1472,14 @@ export default function GamePage() {
               className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Surrender
+            </button>
+
+            <button
+              onClick={handleSplit}
+              disabled={!canSplitActiveHand}
+              className="w-full bg-pink-600 hover:bg-pink-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Split
             </button>
 
             {isHost && gameState.roundFinished && !gameState.dealerRevealed && (
