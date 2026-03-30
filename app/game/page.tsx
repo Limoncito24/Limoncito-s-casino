@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -40,6 +40,7 @@ type GameState = {
   roundFinished: boolean;
   dealerRevealed: boolean;
   betsLocked: boolean;
+  dealerAnimating?: boolean;
 };
 
 type PlayerStatRow = {
@@ -62,7 +63,12 @@ const EMPTY_GAME_STATE: GameState = {
   roundFinished: false,
   dealerRevealed: false,
   betsLocked: false,
+  dealerAnimating: false,
 };
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function normalizeGameState(value: unknown): GameState {
   const raw = (value as Partial<GameState>) || {};
@@ -76,6 +82,7 @@ function normalizeGameState(value: unknown): GameState {
     roundFinished: raw.roundFinished || false,
     dealerRevealed: raw.dealerRevealed || false,
     betsLocked: raw.betsLocked || false,
+    dealerAnimating: raw.dealerAnimating || false,
   };
 }
 
@@ -177,6 +184,7 @@ function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
 
 export default function GamePage() {
   const router = useRouter();
+  const animationStartedRef = useRef(false);
 
   const [message, setMessage] = useState("Loading table...");
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
@@ -207,8 +215,9 @@ export default function GamePage() {
 
       if (error || !data) return;
 
+      const nextState = normalizeGameState(data.game_state);
       setTurnIndex(data.turn_index ?? 0);
-      setGameState(normalizeGameState(data.game_state));
+      setGameState(nextState);
       await refreshBankrolls();
 
       if (!data.game_started) {
@@ -221,12 +230,29 @@ export default function GamePage() {
 
   useEffect(() => {
     if (!isHost) return;
+    if (!currentLobbyId) return;
     if (!gameState.roundStarted) return;
     if (!gameState.roundFinished) return;
     if (gameState.dealerRevealed) return;
+    if (gameState.dealerAnimating) return;
+    if (animationStartedRef.current) return;
 
-    void handleDealerPlay();
-  }, [isHost, gameState.roundStarted, gameState.roundFinished, gameState.dealerRevealed]);
+    animationStartedRef.current = true;
+    void animateDealerPlay();
+  }, [
+    isHost,
+    currentLobbyId,
+    gameState.roundStarted,
+    gameState.roundFinished,
+    gameState.dealerRevealed,
+    gameState.dealerAnimating,
+  ]);
+
+  useEffect(() => {
+    if (!gameState.roundFinished || !gameState.dealerRevealed) {
+      animationStartedRef.current = false;
+    }
+  }, [gameState.roundFinished, gameState.dealerRevealed]);
 
   async function loadGameShell() {
     const {
@@ -381,16 +407,17 @@ export default function GamePage() {
         ...state.activeHandIndex,
         [username]: nextHandIndex,
       };
-      return { nextTurnIndex: currentTurn };
+      return { nextTurnIndex: currentTurn, roundFinished: false };
     }
 
     if (areAllPlayersDone(state)) {
       state.roundFinished = true;
-      return { nextTurnIndex: currentTurn };
+      return { nextTurnIndex: currentTurn, roundFinished: true };
     }
 
     return {
       nextTurnIndex: getNextActiveTurnIndex(currentTurn, state),
+      roundFinished: false,
     };
   }
 
@@ -466,6 +493,7 @@ export default function GamePage() {
       dealerRevealed: true,
       roundFinished: true,
       betsLocked: false,
+      dealerAnimating: false,
     };
 
     const statsPromises: Promise<void>[] = [];
@@ -627,6 +655,73 @@ export default function GamePage() {
     };
   }
 
+  async function animateDealerPlay() {
+    if (!isHost || !currentLobbyId) return;
+
+    const workingDeck = [...gameState.deck];
+    let dealerHand = [...gameState.dealerHand];
+
+    const revealState: GameState = {
+      ...gameState,
+      deck: workingDeck,
+      dealerHand,
+      dealerRevealed: true,
+      dealerAnimating: true,
+      roundFinished: true,
+    };
+
+    await updateLobbyGame({
+      game_state: revealState,
+      turn_index: turnIndex,
+    });
+
+    setGameState(revealState);
+    setMessage("Dealer reveals hole card...");
+
+    await sleep(700);
+
+    if (!isBlackjack(dealerHand)) {
+      while (calculateHandTotal(dealerHand) < 17 && workingDeck.length > 0) {
+        dealerHand = [...dealerHand, workingDeck.pop()!];
+
+        const drawState: GameState = {
+          ...revealState,
+          deck: [...workingDeck],
+          dealerHand: [...dealerHand],
+          dealerRevealed: true,
+          dealerAnimating: true,
+          roundFinished: true,
+        };
+
+        await updateLobbyGame({
+          game_state: drawState,
+          turn_index: turnIndex,
+        });
+
+        setGameState(drawState);
+        setMessage("Dealer draws...");
+
+        await sleep(650);
+      }
+    }
+
+    const { updatedState, summaryMessage } = await settleRound(
+      {
+        ...revealState,
+        deck: workingDeck,
+        dealerHand,
+        dealerRevealed: true,
+        dealerAnimating: true,
+        roundFinished: true,
+      },
+      dealerHand
+    );
+
+    setGameState(updatedState);
+    setMessage(summaryMessage);
+    animationStartedRef.current = false;
+  }
+
   async function handleStartRound() {
     if (!isHost) {
       setMessage("Only host can start the round.");
@@ -706,8 +801,9 @@ export default function GamePage() {
         players.every((player) =>
           (playerHands[player.username] || []).every((hand) => hand.done)
         ),
-      dealerRevealed: dealerHasBlackjack,
+      dealerRevealed: false,
       betsLocked: true,
+      dealerAnimating: false,
     };
 
     const { error } = await updateLobbyGame({
@@ -724,9 +820,8 @@ export default function GamePage() {
     setTurnIndex(0);
 
     if (dealerHasBlackjack) {
-      const { updatedState, summaryMessage } = await settleRound(freshState, dealerHand);
-      setGameState(updatedState);
-      setMessage(summaryMessage);
+      animationStartedRef.current = true;
+      void animateDealerPlay();
       return;
     }
 
@@ -734,7 +829,7 @@ export default function GamePage() {
   }
 
   async function handleHit() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -810,7 +905,7 @@ export default function GamePage() {
   }
 
   async function handleStand() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -862,7 +957,7 @@ export default function GamePage() {
   }
 
   async function handleDoubleDown() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -936,7 +1031,7 @@ export default function GamePage() {
   }
 
   async function handleSurrender() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -988,7 +1083,7 @@ export default function GamePage() {
   }
 
   async function handleSplit() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -1082,32 +1177,6 @@ export default function GamePage() {
     setMessage("Hand split. Play hand 1 first.");
   }
 
-  async function handleDealerPlay() {
-    if (!isHost) return;
-    if (!gameState.roundFinished) return;
-    if (gameState.dealerRevealed) return;
-
-    const deck = [...gameState.deck];
-    const dealerHand = [...gameState.dealerHand];
-
-    while (calculateHandTotal(dealerHand) < 17 && deck.length > 0) {
-      dealerHand.push(deck.pop()!);
-    }
-
-    const { updatedState, summaryMessage } = await settleRound(
-      {
-        ...gameState,
-        deck,
-        dealerHand,
-        dealerRevealed: true,
-      },
-      dealerHand
-    );
-
-    setGameState(updatedState);
-    setMessage(summaryMessage);
-  }
-
   async function handleEndGame() {
     if (!isHost) {
       setMessage("Only host can end the game.");
@@ -1130,6 +1199,7 @@ export default function GamePage() {
 
   const currentTurnPlayer = players.length > 0 ? players[turnIndex]?.username : "none";
   const isMyTurn = currentUsername === currentTurnPlayer;
+  const dealerAnimating = !!gameState.dealerAnimating;
 
   const dealerVisibleCards =
     gameState.dealerRevealed || gameState.roundFinished
@@ -1144,7 +1214,7 @@ export default function GamePage() {
         : 0;
 
   const canSplitActiveHand = (() => {
-    if (!isMyTurn || !gameState.roundStarted || gameState.roundFinished) return false;
+    if (!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating) return false;
     const { hand } = getCurrentHand(currentUsername);
     if (!hand || hand.done || hand.doubled || hand.cards.length !== 2) return false;
     if (!canSplitRanks(hand.cards[0], hand.cards[1])) return false;
@@ -1153,7 +1223,7 @@ export default function GamePage() {
   })();
 
   const results = useMemo(() => {
-    if (!gameState.dealerRevealed) return [];
+    if (!gameState.dealerRevealed || dealerAnimating) return [];
 
     return players.flatMap((player) => {
       const hands = gameState.playerHands[player.username] || [];
@@ -1163,7 +1233,7 @@ export default function GamePage() {
         return `${player.username} hand ${index + 1}: ${hand.result || "done"} (${handTotal})${busterText}`;
       });
     });
-  }, [players, gameState]);
+  }, [players, gameState, dealerAnimating]);
 
   return (
     <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
@@ -1233,7 +1303,7 @@ export default function GamePage() {
                       </div>
                     </div>
 
-                    {!gameState.betsLocked && (
+                    {!gameState.betsLocked && !dealerAnimating && (
                       <div className="mb-3 space-y-3">
                         <div>
                           <label className="text-sm text-white/70 block mb-2">Main Bet</label>
@@ -1394,7 +1464,7 @@ export default function GamePage() {
                                 {hand.busterWon && (
                                   <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
                                 )}
-                                {hand.result && (
+                                {hand.result && !dealerAnimating && (
                                   <p className="text-yellow-300">Result: {hand.result}</p>
                                 )}
                               </div>
@@ -1409,7 +1479,30 @@ export default function GamePage() {
             </div>
           </div>
 
-          {gameState.dealerRevealed && (
+          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Table Info</h2>
+            <div className="space-y-2 text-white/90">
+              <p>Current Turn: {currentTurnPlayer}</p>
+              <p>You: {currentUsername || "..."}</p>
+              <p>Host: {isHost ? "You" : "Another player"}</p>
+              <p>Cards Left In Shoe: {gameState.deck.length}</p>
+              <p>Decks In Shoe: {players.length + 1}</p>
+              <p>Buster: optional $0 or $5</p>
+              <p>Blackjack Pays: 3:2</p>
+              <p>
+                Round:{" "}
+                {gameState.roundStarted
+                  ? gameState.roundFinished
+                    ? gameState.dealerRevealed
+                      ? "Results ready"
+                      : "Waiting for dealer"
+                    : "Active"
+                  : "Not started"}
+              </p>
+            </div>
+          </div>
+
+          {gameState.dealerRevealed && !dealerAnimating && (
             <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
               <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
               <div className="grid md:grid-cols-2 gap-2">
@@ -1428,7 +1521,8 @@ export default function GamePage() {
             {isHost && (
               <button
                 onClick={handleStartRound}
-                className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold"
+                disabled={dealerAnimating}
+                className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
               >
                 Start
               </button>
@@ -1436,7 +1530,7 @@ export default function GamePage() {
 
             <button
               onClick={handleHit}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
               className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Hit
@@ -1444,7 +1538,7 @@ export default function GamePage() {
 
             <button
               onClick={handleStand}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
               className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Stand
@@ -1452,7 +1546,7 @@ export default function GamePage() {
 
             <button
               onClick={handleDoubleDown}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
               className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Double
@@ -1460,7 +1554,7 @@ export default function GamePage() {
 
             <button
               onClick={handleSurrender}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
+              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
               className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Surrender
@@ -1477,9 +1571,10 @@ export default function GamePage() {
             {isHost && (
               <button
                 onClick={handleEndGame}
-                className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold"
+                disabled={dealerAnimating}
+                className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold disabled:opacity-50"
               >
-                End
+                End Game
               </button>
             )}
           </div>

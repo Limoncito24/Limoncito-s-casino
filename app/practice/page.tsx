@@ -44,6 +44,10 @@ type PracticeState = {
 const LOCAL_STORAGE_BET_KEY = "blackjack_practice_bet";
 const LOCAL_STORAGE_BUSTER_KEY = "blackjack_practice_buster";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createDecks(deckCount: number) {
   const suits = ["♠", "♥", "♦", "♣"];
   const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -160,6 +164,8 @@ export default function PracticePage() {
     message: "Set your bet and start a practice round",
   });
 
+  const [dealerAnimating, setDealerAnimating] = useState(false);
+
   useEffect(() => {
     async function loadPracticeData() {
       const savedBet = Number(localStorage.getItem(LOCAL_STORAGE_BET_KEY) || 100);
@@ -210,7 +216,8 @@ export default function PracticePage() {
     !state.roundFinished &&
     !!activeHand &&
     !activeHand.done &&
-    !state.dealerRevealed;
+    !state.dealerRevealed &&
+    !dealerAnimating;
 
   function moveToNextHand(updatedHands: PracticeHand[]) {
     const nextIndex = updatedHands.findIndex((hand) => !hand.done);
@@ -231,6 +238,8 @@ export default function PracticePage() {
   }
 
   function startRound() {
+    if (dealerAnimating) return;
+
     if (state.bankroll <= 0) {
       setState((prev) => ({
         ...prev,
@@ -281,26 +290,16 @@ export default function PracticePage() {
       dealerHand,
       roundStarted: true,
       roundFinished: dealerHasBlackjack || blackjack,
-      dealerRevealed: dealerHasBlackjack,
+      dealerRevealed: false,
       confirmedBet: false,
       message: dealerHasBlackjack ? "Dealer has blackjack." : "Practice round started",
     };
 
-    if (dealerHasBlackjack) {
-      void settleRound(nextState, dealerHand);
-      return;
-    }
-
-    if (blackjack) {
-      setState({
-        ...nextState,
-        message: "Blackjack!",
-      });
-      void settleRound(nextState, dealerHand);
-      return;
-    }
-
     setState(nextState);
+
+    if (dealerHasBlackjack || blackjack) {
+      void animateDealerPlay(nextState, dealerHand);
+    }
   }
 
   function hit() {
@@ -316,9 +315,9 @@ export default function PracticePage() {
     hand.cards = [...hand.cards, card];
     hand.blackjack = false;
 
-    const handTotal = calculateHandTotal(hand.cards);
+    const total = calculateHandTotal(hand.cards);
 
-    if (handTotal > 21) {
+    if (total > 21) {
       hand.busted = true;
       hand.done = true;
       hand.result = "bust";
@@ -329,13 +328,22 @@ export default function PracticePage() {
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
     if (allDone) {
-      void settleRound({
+      const nextState = {
         ...state,
         deck,
         playerHands,
         activeHandIndex: 0,
         roundFinished: true,
-      });
+      };
+      setState((prev) => ({
+        ...prev,
+        deck,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+        message: hand.busted ? `You drew ${card} and busted` : `You drew ${card}`,
+      }));
+      void animateDealerPlay(nextState);
       return;
     }
 
@@ -361,12 +369,20 @@ export default function PracticePage() {
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
     if (allDone) {
-      void settleRound({
+      const nextState = {
         ...state,
         playerHands,
         activeHandIndex: 0,
         roundFinished: true,
-      });
+      };
+      setState((prev) => ({
+        ...prev,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+        message: "Dealer reveals...",
+      }));
+      void animateDealerPlay(nextState);
       return;
     }
 
@@ -398,7 +414,8 @@ export default function PracticePage() {
     if (!card) return;
 
     const playerHands = [...state.playerHands];
-    const doubledHand: PracticeHand = {
+
+    const newHand: PracticeHand = {
       ...hand,
       bet: hand.bet * 2,
       doubled: true,
@@ -407,25 +424,34 @@ export default function PracticePage() {
       cards: [...hand.cards, card],
     };
 
-    const handTotal = calculateHandTotal(doubledHand.cards);
+    const total = calculateHandTotal(newHand.cards);
 
-    if (handTotal > 21) {
-      doubledHand.busted = true;
-      doubledHand.result = "bust";
+    if (total > 21) {
+      newHand.busted = true;
+      newHand.result = "bust";
     }
 
-    playerHands[state.activeHandIndex] = doubledHand;
+    playerHands[state.activeHandIndex] = newHand;
 
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
     if (allDone) {
-      void settleRound({
+      const nextState = {
         ...state,
         deck,
         playerHands,
         activeHandIndex: 0,
         roundFinished: true,
-      });
+      };
+      setState((prev) => ({
+        ...prev,
+        deck,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+        message: `You doubled and drew ${card}`,
+      }));
+      void animateDealerPlay(nextState);
       return;
     }
 
@@ -435,7 +461,7 @@ export default function PracticePage() {
       playerHands,
       activeHandIndex: nextIndex,
       roundFinished: false,
-      message: `You doubled down and drew ${card}. Move to hand ${nextIndex + 1}`,
+      message: `You doubled and drew ${card}`,
     }));
   }
 
@@ -443,6 +469,7 @@ export default function PracticePage() {
     if (!canAct) return;
 
     const playerHands = [...state.playerHands];
+
     playerHands[state.activeHandIndex] = {
       ...playerHands[state.activeHandIndex],
       surrendered: true,
@@ -453,12 +480,20 @@ export default function PracticePage() {
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
     if (allDone) {
-      void settleRound({
+      const nextState = {
         ...state,
         playerHands,
         activeHandIndex: 0,
         roundFinished: true,
-      });
+      };
+      setState((prev) => ({
+        ...prev,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+        message: "Dealer reveals...",
+      }));
+      void animateDealerPlay(nextState);
       return;
     }
 
@@ -555,16 +590,62 @@ export default function PracticePage() {
     }));
   }
 
+  async function animateDealerPlay(baseState?: PracticeState, dealerOverride?: string[]) {
+    const source = baseState ?? state;
+    const workingDeck = [...source.deck];
+    let dealerHand = dealerOverride ? [...dealerOverride] : [...source.dealerHand];
+
+    setDealerAnimating(true);
+
+    setState((prev) => ({
+      ...prev,
+      deck: workingDeck,
+      dealerHand,
+      dealerRevealed: true,
+      roundStarted: true,
+      roundFinished: true,
+      message: "Dealer reveals hole card...",
+    }));
+
+    await sleep(700);
+
+    if (!isBlackjack(dealerHand)) {
+      while (calculateHandTotal(dealerHand) < 17 && workingDeck.length > 0) {
+        dealerHand = [...dealerHand, workingDeck.pop()!];
+
+        setState((prev) => ({
+          ...prev,
+          deck: [...workingDeck],
+          dealerHand: [...dealerHand],
+          dealerRevealed: true,
+          roundStarted: true,
+          roundFinished: true,
+          message: "Dealer draws...",
+        }));
+
+        await sleep(650);
+      }
+    }
+
+    await settleRound(
+      {
+        ...source,
+        deck: workingDeck,
+        dealerHand,
+        dealerRevealed: true,
+        roundStarted: true,
+        roundFinished: true,
+      },
+      dealerHand
+    );
+
+    setDealerAnimating(false);
+  }
+
   async function settleRound(baseState?: PracticeState, dealerOverride?: string[]) {
     const source = baseState ?? state;
     const deck = [...source.deck];
     const dealerHand = dealerOverride ? [...dealerOverride] : [...source.dealerHand];
-
-    if (!isBlackjack(dealerHand)) {
-      while (calculateHandTotal(dealerHand) < 17 && deck.length > 0) {
-        dealerHand.push(deck.pop()!);
-      }
-    }
 
     const dealerTotal = calculateHandTotal(dealerHand);
     const dealerBust = dealerTotal > 21;
@@ -697,14 +778,14 @@ export default function PracticePage() {
     state.bankroll >= activeHand.bet * 2 + activeHand.busterBet;
 
   const results = useMemo(() => {
-    if (!state.dealerRevealed) return [];
+    if (!state.dealerRevealed || dealerAnimating) return [];
 
     return state.playerHands.map((hand, index) => {
       const handTotal = calculateHandTotal(hand.cards);
       const busterText = hand.busterWon ? ` + buster $${hand.busterPayout}` : "";
       return `Hand ${index + 1}: ${hand.result || "done"} (${handTotal})${busterText}`;
     });
-  }, [state.dealerRevealed, state.playerHands]);
+  }, [state.dealerRevealed, state.playerHands, dealerAnimating]);
 
   return (
     <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
@@ -755,7 +836,7 @@ export default function PracticePage() {
                   <p className="text-sm text-yellow-300">Bankroll: ${state.bankroll}</p>
                 </div>
 
-                {(!state.roundStarted || state.dealerRevealed) && (
+                {(!state.roundStarted || state.dealerRevealed) && !dealerAnimating && (
                   <div className="w-full sm:w-auto space-y-3">
                     <div>
                       <label className="text-sm text-white/70 block mb-2">Main Bet</label>
@@ -890,7 +971,9 @@ export default function PracticePage() {
                           {hand.busterWon && (
                             <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
                           )}
-                          {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
+                          {hand.result && !dealerAnimating && (
+                            <p className="text-yellow-300">Result: {hand.result}</p>
+                          )}
                         </div>
                       </div>
                     );
@@ -900,7 +983,7 @@ export default function PracticePage() {
             </div>
           </div>
 
-          {state.dealerRevealed && (
+          {state.dealerRevealed && !dealerAnimating && (
             <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
               <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
               <div className="grid md:grid-cols-2 gap-2">
@@ -918,7 +1001,7 @@ export default function PracticePage() {
           <div className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <button
               onClick={startRound}
-              disabled={state.roundStarted && !state.roundFinished}
+              disabled={(state.roundStarted && !state.roundFinished) || dealerAnimating}
               className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Start
