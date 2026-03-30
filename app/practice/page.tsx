@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../lib/supabase";
 
 type PracticeResult =
   | "win"
@@ -40,7 +41,6 @@ type PracticeState = {
   message: string;
 };
 
-const LOCAL_STORAGE_BANKROLL_KEY = "blackjack_practice_bankroll";
 const LOCAL_STORAGE_BET_KEY = "blackjack_practice_bet";
 const LOCAL_STORAGE_BUSTER_KEY = "blackjack_practice_buster";
 
@@ -134,8 +134,12 @@ function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   return (
     <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
       <div className={`text-xs sm:text-sm font-bold ${getCardColor(card)}`}>{card}</div>
-      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
-      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
+      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>
+        {getCardSuit(card)}
+      </div>
+      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>
+        {card}
+      </div>
     </div>
   );
 }
@@ -157,21 +161,40 @@ export default function PracticePage() {
   });
 
   useEffect(() => {
-    const savedBankroll = Number(localStorage.getItem(LOCAL_STORAGE_BANKROLL_KEY) || 1000);
-    const savedBet = Number(localStorage.getItem(LOCAL_STORAGE_BET_KEY) || 100);
-    const savedBuster = Number(localStorage.getItem(LOCAL_STORAGE_BUSTER_KEY) || 0);
+    async function loadPracticeData() {
+      const savedBet = Number(localStorage.getItem(LOCAL_STORAGE_BET_KEY) || 100);
+      const savedBuster = Number(localStorage.getItem(LOCAL_STORAGE_BUSTER_KEY) || 0);
 
-    setState((prev) => ({
-      ...prev,
-      bankroll: savedBankroll,
-      betInput: savedBet,
-      busterBetInput: savedBuster === 5 ? 5 : 0,
-    }));
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setState((prev) => ({
+          ...prev,
+          bankroll: 1000,
+          betInput: savedBet,
+          busterBetInput: savedBuster === 5 ? 5 : 0,
+        }));
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("player_stats")
+        .select("bankroll")
+        .eq("user_id", user.id)
+        .single();
+
+      setState((prev) => ({
+        ...prev,
+        bankroll: error ? 1000 : (data?.bankroll ?? 1000),
+        betInput: savedBet,
+        busterBetInput: savedBuster === 5 ? 5 : 0,
+      }));
+    }
+
+    void loadPracticeData();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_BANKROLL_KEY, String(state.bankroll));
-  }, [state.bankroll]);
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_BET_KEY, String(state.betInput));
@@ -264,7 +287,7 @@ export default function PracticePage() {
     };
 
     if (dealerHasBlackjack) {
-      settleRound(nextState, dealerHand);
+      void settleRound(nextState, dealerHand);
       return;
     }
 
@@ -491,7 +514,7 @@ export default function PracticePage() {
     }));
   }
 
-  function settleRound(baseState?: PracticeState, dealerOverride?: string[]) {
+  async function settleRound(baseState?: PracticeState, dealerOverride?: string[]) {
     const source = baseState ?? state;
     const deck = [...source.deck];
     const dealerHand = dealerOverride ? [...dealerOverride] : [...source.dealerHand];
@@ -574,6 +597,19 @@ export default function PracticePage() {
       return nextHand;
     });
 
+    const updatedBankroll = Math.round((source.bankroll + bankrollChange) * 100) / 100;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await supabase
+        .from("player_stats")
+        .update({ bankroll: updatedBankroll })
+        .eq("user_id", user.id);
+    }
+
     let summary = "Dealer finished.";
     const wins = playerHands.filter((h) => h.result === "win" || h.result === "blackjack").length;
     const losses = playerHands.filter(
@@ -593,7 +629,7 @@ export default function PracticePage() {
       dealerHand,
       dealerRevealed: true,
       playerHands,
-      bankroll: Math.round((prev.bankroll + bankrollChange) * 100) / 100,
+      bankroll: updatedBankroll,
       roundStarted: false,
       roundFinished: true,
       confirmedBet: false,
@@ -632,7 +668,7 @@ export default function PracticePage() {
   return (
     <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
       <div className="h-full max-w-5xl mx-auto flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-40">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-36">
           <div className="rounded-3xl border border-yellow-400/20 bg-black/20 p-5">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -651,12 +687,12 @@ export default function PracticePage() {
             </div>
           </div>
 
-          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-6">
+          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-8">
             <div className="text-center space-y-3">
               <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
               <p>Total: {dealerVisibleTotal}</p>
 
-              <div className="flex justify-center gap-2 sm:gap-3 flex-wrap min-h-[96px] sm:min-h-[110px]">
+              <div className="flex justify-center gap-3 flex-wrap min-h-[110px]">
                 {dealerVisibleCards.length === 0 ? (
                   <p className="text-white/70">No dealer cards yet</p>
                 ) : (
@@ -799,7 +835,7 @@ export default function PracticePage() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                        <div className="flex gap-2 flex-wrap min-h-[90px] sm:min-h-[110px]">
                           {hand.cards.map((card, cardIndex) => (
                             <Card key={`${index}-${card}-${cardIndex}`} card={card} />
                           ))}
@@ -888,7 +924,7 @@ export default function PracticePage() {
             </button>
 
             <button
-              onClick={() => settleRound()}
+              onClick={() => void settleRound()}
               disabled={!state.roundFinished || state.dealerRevealed}
               className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
