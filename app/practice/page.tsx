@@ -294,8 +294,9 @@ export default function PracticePage() {
     if (blackjack) {
       setState({
         ...nextState,
-        message: "Blackjack! Run dealer.",
+        message: "Blackjack!",
       });
+      void settleRound(nextState, dealerHand);
       return;
     }
 
@@ -327,12 +328,23 @@ export default function PracticePage() {
 
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
+    if (allDone) {
+      void settleRound({
+        ...state,
+        deck,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+      });
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       deck,
       playerHands,
-      activeHandIndex: allDone ? prev.activeHandIndex : nextIndex,
-      roundFinished: allDone,
+      activeHandIndex: hand.done ? nextIndex : prev.activeHandIndex,
+      roundFinished: false,
       message: hand.busted ? `You drew ${card} and busted` : `You drew ${card}`,
     }));
   }
@@ -348,12 +360,22 @@ export default function PracticePage() {
 
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
+    if (allDone) {
+      void settleRound({
+        ...state,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+      });
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       playerHands,
-      activeHandIndex: allDone ? prev.activeHandIndex : nextIndex,
-      roundFinished: allDone,
-      message: allDone ? "All hands done. Run dealer." : `Move to hand ${nextIndex + 1}`,
+      activeHandIndex: nextIndex,
+      roundFinished: false,
+      message: `Move to hand ${nextIndex + 1}`,
     }));
   }
 
@@ -396,15 +418,24 @@ export default function PracticePage() {
 
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
+    if (allDone) {
+      void settleRound({
+        ...state,
+        deck,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+      });
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       deck,
       playerHands,
-      activeHandIndex: allDone ? prev.activeHandIndex : nextIndex,
-      roundFinished: allDone,
-      message: allDone
-        ? `You doubled down and drew ${card}`
-        : `You doubled down and drew ${card}. Move to hand ${nextIndex + 1}`,
+      activeHandIndex: nextIndex,
+      roundFinished: false,
+      message: `You doubled down and drew ${card}. Move to hand ${nextIndex + 1}`,
     }));
   }
 
@@ -421,12 +452,22 @@ export default function PracticePage() {
 
     const { nextIndex, allDone } = moveToNextHand(playerHands);
 
+    if (allDone) {
+      void settleRound({
+        ...state,
+        playerHands,
+        activeHandIndex: 0,
+        roundFinished: true,
+      });
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       playerHands,
-      activeHandIndex: allDone ? prev.activeHandIndex : nextIndex,
-      roundFinished: allDone,
-      message: allDone ? "You surrendered. Run dealer." : `Move to hand ${nextIndex + 1}`,
+      activeHandIndex: nextIndex,
+      roundFinished: false,
+      message: `Move to hand ${nextIndex + 1}`,
     }));
   }
 
@@ -874,7 +915,7 @@ export default function PracticePage() {
         </div>
 
         <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-4">
-          <div className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <div className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <button
               onClick={startRound}
               disabled={state.roundStarted && !state.roundFinished}
@@ -921,14 +962,6 @@ export default function PracticePage() {
               className="w-full bg-pink-600 hover:bg-pink-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Split
-            </button>
-
-            <button
-              onClick={() => void settleRound()}
-              disabled={!state.roundFinished || state.dealerRevealed}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-            >
-              Dealer
             </button>
           </div>
         </div>

@@ -219,6 +219,15 @@ export default function GamePage() {
     return () => clearInterval(interval);
   }, [currentLobbyId, router, players]);
 
+  useEffect(() => {
+    if (!isHost) return;
+    if (!gameState.roundStarted) return;
+    if (!gameState.roundFinished) return;
+    if (gameState.dealerRevealed) return;
+
+    void handleDealerPlay();
+  }, [isHost, gameState.roundStarted, gameState.roundFinished, gameState.dealerRevealed]);
+
   async function loadGameShell() {
     const {
       data: { user },
@@ -372,17 +381,16 @@ export default function GamePage() {
         ...state.activeHandIndex,
         [username]: nextHandIndex,
       };
-      return { nextTurnIndex: currentTurn, roundFinished: false };
+      return { nextTurnIndex: currentTurn };
     }
 
     if (areAllPlayersDone(state)) {
       state.roundFinished = true;
-      return { nextTurnIndex: currentTurn, roundFinished: true };
+      return { nextTurnIndex: currentTurn };
     }
 
     return {
       nextTurnIndex: getNextActiveTurnIndex(currentTurn, state),
-      roundFinished: false,
     };
   }
 
@@ -1075,15 +1083,9 @@ export default function GamePage() {
   }
 
   async function handleDealerPlay() {
-    if (!isHost) {
-      setMessage("Only host can run dealer.");
-      return;
-    }
-
-    if (!gameState.roundFinished) {
-      setMessage("Players must finish first.");
-      return;
-    }
+    if (!isHost) return;
+    if (!gameState.roundFinished) return;
+    if (gameState.dealerRevealed) return;
 
     const deck = [...gameState.deck];
     const dealerHand = [...gameState.dealerHand];
@@ -1407,29 +1409,6 @@ export default function GamePage() {
             </div>
           </div>
 
-          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
-            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Table Info</h2>
-            <div className="space-y-2 text-white/90">
-              <p>Current Turn: {currentTurnPlayer}</p>
-              <p>You: {currentUsername || "..."}</p>
-              <p>Host: {isHost ? "You" : "Another player"}</p>
-              <p>Cards Left In Shoe: {gameState.deck.length}</p>
-              <p>Decks In Shoe: {players.length + 1}</p>
-              <p>Buster: optional $0 or $5</p>
-              <p>Blackjack Pays: 3:2</p>
-              <p>
-                Round:{" "}
-                {gameState.roundStarted
-                  ? gameState.roundFinished
-                    ? gameState.dealerRevealed
-                      ? "Results ready"
-                      : "Waiting for dealer"
-                    : "Active"
-                  : "Not started"}
-              </p>
-            </div>
-          </div>
-
           {gameState.dealerRevealed && (
             <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
               <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
@@ -1445,7 +1424,7 @@ export default function GamePage() {
         </div>
 
         <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-4">
-          <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
             {isHost && (
               <button
                 onClick={handleStartRound}
@@ -1495,21 +1474,12 @@ export default function GamePage() {
               Split
             </button>
 
-            {isHost && gameState.roundFinished && !gameState.dealerRevealed && (
-              <button
-                onClick={handleDealerPlay}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold"
-              >
-                Dealer
-              </button>
-            )}
-
             {isHost && (
               <button
                 onClick={handleEndGame}
                 className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold"
               >
-                End Game
+                End
               </button>
             )}
           </div>
