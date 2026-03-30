@@ -75,7 +75,6 @@ function getCardSuit(card: string) {
 
 function getCardValue(card: string) {
   const rank = getCardRank(card);
-
   if (rank === "A") return 11;
   if (["K", "Q", "J"].includes(rank)) return 10;
   return Number(rank);
@@ -104,6 +103,18 @@ function getBusterMultiplier(cardCount: number) {
   if (cardCount === 4) return 2;
   if (cardCount === 3) return 2;
   return 0;
+}
+
+function canSplitRanks(a: string, b: string) {
+  const rankA = getCardRank(a);
+  const rankB = getCardRank(b);
+  const tenValue = ["10", "J", "Q", "K"];
+
+  if (tenValue.includes(rankA) && tenValue.includes(rankB)) {
+    return true;
+  }
+
+  return rankA === rankB;
 }
 
 function getCardColor(card: string) {
@@ -258,10 +269,10 @@ export default function PracticePage() {
     }
 
     if (blackjack) {
-      setState((prev) => ({
+      setState({
         ...nextState,
         message: "Blackjack! Run dealer.",
-      }));
+      });
       return;
     }
 
@@ -412,10 +423,10 @@ export default function PracticePage() {
 
     const [card1, card2] = hand.cards;
 
-    if (getCardRank(card1) !== getCardRank(card2)) {
+    if (!canSplitRanks(card1, card2)) {
       setState((prev) => ({
         ...prev,
-        message: "Cards must have the same rank to split.",
+        message: "Cards must match rank or both be 10-value cards to split.",
       }));
       return;
     }
@@ -598,7 +609,7 @@ export default function PracticePage() {
   const canSplit =
     canAct &&
     activeHand?.cards.length === 2 &&
-    getCardRank(activeHand.cards[0]) === getCardRank(activeHand.cards[1]) &&
+    canSplitRanks(activeHand.cards[0], activeHand.cards[1]) &&
     state.bankroll >= activeHand.bet * 2 + activeHand.busterBet;
 
   const results = useMemo(() => {
@@ -622,16 +633,10 @@ export default function PracticePage() {
             </div>
 
             <div className="flex gap-3">
-              <Link
-                href="/admin"
-                className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl"
-              >
+              <Link href="/admin" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
                 Admin
               </Link>
-              <Link
-                href="/lobby"
-                className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl"
-              >
+              <Link href="/lobby" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
                 Multiplayer Lobby
               </Link>
             </div>
@@ -764,7 +769,8 @@ export default function PracticePage() {
               ) : (
                 state.playerHands.map((hand, index) => {
                   const handTotal = calculateHandTotal(hand.cards);
-                  const isActive = index === state.activeHandIndex && !hand.done && !state.dealerRevealed;
+                  const isActive =
+                    index === state.activeHandIndex && !hand.done && !state.dealerRevealed;
 
                   return (
                     <div
@@ -796,7 +802,9 @@ export default function PracticePage() {
                         {hand.busted && <p className="text-red-300">Busted</p>}
                         {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
                         {hand.doubled && <p className="text-blue-300">Doubled down</p>}
-                        {hand.busterWon && <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>}
+                        {hand.busterWon && (
+                          <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
+                        )}
                         {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
                       </div>
                     </div>
