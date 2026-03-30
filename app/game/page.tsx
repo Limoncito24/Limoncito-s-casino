@@ -810,6 +810,17 @@ export default function GamePage() {
     const dealerHand = [deck.pop()!, deck.pop()!];
     const dealerHasBlackjack = isBlackjack(dealerHand);
 
+    let firstTurnIndex = 0;
+
+    if (!dealerHasBlackjack) {
+      const nextIndex = players.findIndex((player) => {
+        const hands = playerHands[player.username] || [];
+        return hands.some((hand) => !hand.done);
+      });
+
+      firstTurnIndex = nextIndex === -1 ? 0 : nextIndex;
+    }
+
     const freshState: GameState = {
       deck,
       playerHands,
@@ -828,7 +839,7 @@ export default function GamePage() {
 
     const { error } = await updateLobbyGame({
       game_state: freshState,
-      turn_index: 0,
+      turn_index: firstTurnIndex,
     });
 
     if (error) {
@@ -837,7 +848,7 @@ export default function GamePage() {
     }
 
     setGameState(freshState);
-    setTurnIndex(0);
+    setTurnIndex(firstTurnIndex);
 
     if (dealerHasBlackjack) {
       animationStartedRef.current = true;
@@ -1228,7 +1239,12 @@ export default function GamePage() {
   }
 
   const currentTurnPlayer = players.length > 0 ? players[turnIndex]?.username : "none";
-  const isMyTurn = currentUsername === currentTurnPlayer;
+  const currentTurnHand = currentTurnPlayer ? getCurrentHand(currentTurnPlayer).hand : undefined;
+  const isMyTurn =
+    currentUsername === currentTurnPlayer &&
+    !!currentTurnHand &&
+    !currentTurnHand.done;
+
   const dealerAnimating = !!gameState.dealerAnimating;
 
   const dealerVisibleCards =
