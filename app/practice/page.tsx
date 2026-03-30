@@ -516,11 +516,15 @@ export default function PracticePage() {
         busterPayout: 0,
       };
 
-      if (dealerBust && hand.busterBet === 5 && busterMultiplier > 0) {
-        const busterProfit = hand.busterBet * busterMultiplier;
-        bankrollChange += busterProfit;
-        nextHand.busterWon = true;
-        nextHand.busterPayout = busterProfit;
+      if (hand.busterBet === 5) {
+        if (dealerBust && busterMultiplier > 0) {
+          const busterProfit = hand.busterBet * busterMultiplier;
+          bankrollChange += busterProfit;
+          nextHand.busterWon = true;
+          nextHand.busterPayout = busterProfit;
+        } else {
+          bankrollChange -= hand.busterBet;
+        }
       }
 
       if (hand.surrendered) {
@@ -585,13 +589,15 @@ export default function PracticePage() {
 
     setState((prev) => ({
       ...prev,
-      deck,
+      deck: [],
       dealerHand,
       dealerRevealed: true,
       playerHands,
       bankroll: Math.round((prev.bankroll + bankrollChange) * 100) / 100,
+      roundStarted: false,
       roundFinished: true,
       confirmedBet: false,
+      activeHandIndex: 0,
       message: `${summary} (${bankrollChange >= 0 ? "+" : ""}$${bankrollChange})`,
     }));
   }
@@ -608,7 +614,8 @@ export default function PracticePage() {
 
   const canSplit =
     canAct &&
-    activeHand?.cards.length === 2 &&
+    !!activeHand &&
+    activeHand.cards.length === 2 &&
     canSplitRanks(activeHand.cards[0], activeHand.cards[1]) &&
     state.bankroll >= activeHand.bet * 2 + activeHand.busterBet;
 
@@ -670,7 +677,7 @@ export default function PracticePage() {
                 <p className="text-sm text-yellow-300">Bankroll: ${state.bankroll}</p>
               </div>
 
-              {!state.roundStarted && (
+              {(!state.roundStarted || state.dealerRevealed) && (
                 <div className="w-full sm:w-auto space-y-3">
                   <div>
                     <label className="text-sm text-white/70 block mb-2">Main Bet</label>
@@ -820,7 +827,7 @@ export default function PracticePage() {
 
           <button
             onClick={startRound}
-            disabled={state.roundStarted && !state.dealerRevealed}
+            disabled={state.roundStarted && !state.roundFinished}
             className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
           >
             Start Round
