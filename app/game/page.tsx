@@ -160,17 +160,17 @@ function getBusterMultiplier(cardCount: number) {
 function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   if (hidden) {
     return (
-      <div className="w-16 h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
-        <div className="w-10 h-16 rounded-lg border border-white/30 bg-blue-500/40" />
+      <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
+        <div className="w-8 h-12 sm:w-10 sm:h-16 rounded-lg border border-white/30 bg-blue-500/40" />
       </div>
     );
   }
 
   return (
-    <div className="w-16 h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
-      <div className={`text-sm font-bold ${getCardColor(card)}`}>{card}</div>
-      <div className={`text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
-      <div className={`text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
+    <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
+      <div className={`text-xs sm:text-sm font-bold ${getCardColor(card)}`}>{card}</div>
+      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
+      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
     </div>
   );
 }
@@ -372,17 +372,16 @@ export default function GamePage() {
         ...state.activeHandIndex,
         [username]: nextHandIndex,
       };
-      return { nextTurnIndex: currentTurn, roundFinished: false };
+      return { nextTurnIndex: currentTurn };
     }
 
     if (areAllPlayersDone(state)) {
       state.roundFinished = true;
-      return { nextTurnIndex: currentTurn, roundFinished: true };
+      return { nextTurnIndex: currentTurn };
     }
 
     return {
       nextTurnIndex: getNextActiveTurnIndex(currentTurn, state),
-      roundFinished: false,
     };
   }
 
@@ -1164,281 +1163,271 @@ export default function GamePage() {
   }, [players, gameState]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white p-4 sm:p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="rounded-3xl border border-yellow-400/20 bg-black/20 backdrop-blur p-5">
-          <h1 className="text-3xl sm:text-4xl font-bold text-center text-yellow-300">
-            Blackjack Table
-          </h1>
-          <p className="text-center mt-2">Lobby Code: {currentLobbyCode || "..."}</p>
-          <p className="text-center text-white/80 mt-1">{message}</p>
-        </div>
-
-        <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-8">
-          <div className="text-center space-y-3">
-            <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
-            <p>Total: {dealerVisibleTotal}</p>
-
-            <div className="flex justify-center gap-3 flex-wrap min-h-[110px]">
-              {dealerVisibleCards.length === 0 ? (
-                <p className="text-white/70">No dealer cards yet</p>
-              ) : (
-                dealerVisibleCards.map((card, index) =>
-                  card === "HIDDEN" ? (
-                    <Card key={`hidden-${index}`} card="??" hidden />
-                  ) : (
-                    <Card key={`${card}-${index}`} card={card} />
-                  )
-                )
-              )}
-            </div>
+    <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
+      <div className="h-full max-w-6xl mx-auto flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-40">
+          <div className="rounded-3xl border border-yellow-400/20 bg-black/20 backdrop-blur p-5">
+            <h1 className="text-3xl sm:text-4xl font-bold text-center text-yellow-300">
+              Blackjack Table
+            </h1>
+            <p className="text-center mt-2">Lobby Code: {currentLobbyCode || "..."}</p>
+            <p className="text-center text-white/80 mt-1">{message}</p>
           </div>
 
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {players.map((player, index) => {
-              const hands = gameState.playerHands[player.username] || [];
-              const activeIndex = gameState.activeHandIndex[player.username] ?? 0;
-              const isCurrentTurn =
-                index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
+          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
+              <p>Total: {dealerVisibleTotal}</p>
 
-              const canEditBets =
-                !gameState.betsLocked &&
-                player.username.trim().toLowerCase() === currentUsername.trim().toLowerCase();
+              <div className="flex justify-center gap-2 sm:gap-3 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                {dealerVisibleCards.length === 0 ? (
+                  <p className="text-white/70">No dealer cards yet</p>
+                ) : (
+                  dealerVisibleCards.map((card, index) =>
+                    card === "HIDDEN" ? (
+                      <Card key={`hidden-${index}`} card="??" hidden />
+                    ) : (
+                      <Card key={`${card}-${index}`} card={card} />
+                    )
+                  )
+                )}
+              </div>
+            </div>
 
-              return (
-                <div
-                  key={player.id}
-                  className={`rounded-2xl p-4 border ${
-                    isCurrentTurn
-                      ? "border-yellow-400 bg-yellow-400/15"
-                      : "border-white/10 bg-black/20"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="font-bold text-lg">{player.username}</p>
-                      <p className="text-sm text-yellow-300">
-                        Bankroll: ${bankrolls[player.username] ?? 1000}
-                      </p>
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {players.map((player, index) => {
+                const hands = gameState.playerHands[player.username] || [];
+                const activeIndex = gameState.activeHandIndex[player.username] ?? 0;
+                const isCurrentTurn =
+                  index === turnIndex && gameState.roundStarted && !gameState.roundFinished;
+
+                const canEditBets =
+                  !gameState.betsLocked &&
+                  player.username.trim().toLowerCase() === currentUsername.trim().toLowerCase();
+
+                return (
+                  <div
+                    key={player.id}
+                    className={`rounded-2xl p-4 border ${
+                      isCurrentTurn
+                        ? "border-yellow-400 bg-yellow-400/15"
+                        : "border-white/10 bg-black/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-bold text-lg">{player.username}</p>
+                        <p className="text-sm text-yellow-300">
+                          Bankroll: ${bankrolls[player.username] ?? 1000}
+                        </p>
+                      </div>
+                      <div className="text-right text-sm">
+                        {isCurrentTurn ? (
+                          <p className="text-green-300">Current turn</p>
+                        ) : (
+                          <p className="text-white/60">Waiting</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right text-sm">
-                      {isCurrentTurn ? (
-                        <p className="text-green-300">Current turn</p>
+
+                    {!gameState.betsLocked && (
+                      <div className="mb-3 space-y-3">
+                        <div>
+                          <label className="text-sm text-white/70 block mb-2">Main Bet</label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBetInputs((prev) => ({
+                                  ...prev,
+                                  [player.username]: Math.max(1, (prev[player.username] ?? 100) - 5),
+                                }));
+                                setConfirmedBets((prev) => ({
+                                  ...prev,
+                                  [player.username]: false,
+                                }));
+                              }}
+                              disabled={!canEditBets}
+                              className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                            >
+                              -5
+                            </button>
+
+                            <div className="w-full rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
+                              ${betInputs[player.username] ?? 100}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBetInputs((prev) => ({
+                                  ...prev,
+                                  [player.username]: (prev[player.username] ?? 100) + 5,
+                                }));
+                                setConfirmedBets((prev) => ({
+                                  ...prev,
+                                  [player.username]: false,
+                                }));
+                              }}
+                              disabled={!canEditBets}
+                              className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                            >
+                              +5
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-sm text-white/70 block mb-2">Buster Bet</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBusterInputs((prev) => ({
+                                  ...prev,
+                                  [player.username]: 0,
+                                }));
+                                setConfirmedBets((prev) => ({
+                                  ...prev,
+                                  [player.username]: false,
+                                }));
+                              }}
+                              disabled={!canEditBets}
+                              className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                                (busterInputs[player.username] ?? 0) === 0
+                                  ? "bg-gray-300 text-black"
+                                  : "bg-white/10 text-white"
+                              }`}
+                            >
+                              No Buster
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBusterInputs((prev) => ({
+                                  ...prev,
+                                  [player.username]: 5,
+                                }));
+                                setConfirmedBets((prev) => ({
+                                  ...prev,
+                                  [player.username]: false,
+                                }));
+                              }}
+                              disabled={!canEditBets}
+                              className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                                (busterInputs[player.username] ?? 0) === 5
+                                  ? "bg-pink-400 text-black"
+                                  : "bg-white/10 text-white"
+                              }`}
+                            >
+                              $5 Buster
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmBet(player.username)}
+                          disabled={!canEditBets}
+                          className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 ${
+                            confirmedBets[player.username]
+                              ? "bg-green-400 text-black"
+                              : "bg-yellow-400 text-black"
+                          }`}
+                        >
+                          {confirmedBets[player.username] ? "Bet Confirmed" : "Confirm Bet"}
+                        </button>
+
+                        <p className="text-xs text-white/80">
+                          Selected: main ${betInputs[player.username] ?? 100} · buster $
+                          {busterInputs[player.username] ?? 0}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {hands.length === 0 ? (
+                        <p className="text-white/60">No cards yet</p>
                       ) : (
-                        <p className="text-white/60">Waiting</p>
+                        hands.map((hand, handIndex) => {
+                          const handTotal = calculateHandTotal(hand.cards);
+                          const isActiveHand =
+                            handIndex === activeIndex && isCurrentTurn && !hand.done;
+
+                          return (
+                            <div
+                              key={`${player.username}-hand-${handIndex}`}
+                              className={`rounded-xl p-3 border ${
+                                isActiveHand
+                                  ? "border-yellow-400 bg-yellow-400/10"
+                                  : "border-white/10 bg-white/5"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="font-semibold">
+                                  Hand {handIndex + 1} · Total {handTotal}
+                                </p>
+                                <div className="text-right text-sm text-white/70">
+                                  <p>Main ${hand.bet}</p>
+                                  <p>Buster ${hand.busterBet}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex gap-2 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                                {hand.cards.map((card, cardIndex) => (
+                                  <Card
+                                    key={`${player.username}-${handIndex}-${card}-${cardIndex}`}
+                                    card={card}
+                                  />
+                                ))}
+                              </div>
+
+                              <div className="mt-2 text-sm text-white/75">
+                                {hand.blackjack && <p className="text-emerald-300">Blackjack</p>}
+                                {hand.busted && <p className="text-red-300">Busted</p>}
+                                {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
+                                {hand.doubled && <p className="text-blue-300">Doubled down</p>}
+                                {hand.busterWon && (
+                                  <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
+                                )}
+                                {hand.result && (
+                                  <p className="text-yellow-300">Result: {hand.result}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </div>
-
-                  {!gameState.betsLocked && (
-                    <div className="mb-3 space-y-3">
-                      <div>
-                        <label className="text-sm text-white/70 block mb-2">Main Bet</label>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBetInputs((prev) => ({
-                                ...prev,
-                                [player.username]: Math.max(1, (prev[player.username] ?? 100) - 5),
-                              }));
-                              setConfirmedBets((prev) => ({
-                                ...prev,
-                                [player.username]: false,
-                              }));
-                            }}
-                            disabled={!canEditBets}
-                            className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
-                          >
-                            -5
-                          </button>
-
-                          <div className="w-full rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
-                            ${betInputs[player.username] ?? 100}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBetInputs((prev) => ({
-                                ...prev,
-                                [player.username]: (prev[player.username] ?? 100) + 5,
-                              }));
-                              setConfirmedBets((prev) => ({
-                                ...prev,
-                                [player.username]: false,
-                              }));
-                            }}
-                            disabled={!canEditBets}
-                            className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
-                          >
-                            +5
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-sm text-white/70 block mb-2">Buster Bet</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBusterInputs((prev) => ({
-                                ...prev,
-                                [player.username]: 0,
-                              }));
-                              setConfirmedBets((prev) => ({
-                                ...prev,
-                                [player.username]: false,
-                              }));
-                            }}
-                            disabled={!canEditBets}
-                            className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
-                              (busterInputs[player.username] ?? 0) === 0
-                                ? "bg-gray-300 text-black"
-                                : "bg-white/10 text-white"
-                            }`}
-                          >
-                            No Buster
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBusterInputs((prev) => ({
-                                ...prev,
-                                [player.username]: 5,
-                              }));
-                              setConfirmedBets((prev) => ({
-                                ...prev,
-                                [player.username]: false,
-                              }));
-                            }}
-                            disabled={!canEditBets}
-                            className={`py-3 rounded-lg font-semibold disabled:opacity-50 ${
-                              (busterInputs[player.username] ?? 0) === 5
-                                ? "bg-pink-400 text-black"
-                                : "bg-white/10 text-white"
-                            }`}
-                          >
-                            $5 Buster
-                          </button>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleConfirmBet(player.username)}
-                        disabled={!canEditBets}
-                        className={`w-full py-3 rounded-lg font-semibold disabled:opacity-50 ${
-                          confirmedBets[player.username]
-                            ? "bg-green-400 text-black"
-                            : "bg-yellow-400 text-black"
-                        }`}
-                      >
-                        {confirmedBets[player.username] ? "Bet Confirmed" : "Confirm Bet"}
-                      </button>
-
-                      <p className="text-xs text-white/80">
-                        Selected: main ${betInputs[player.username] ?? 100} · buster $
-                        {busterInputs[player.username] ?? 0}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {hands.length === 0 ? (
-                      <p className="text-white/60">No cards yet</p>
-                    ) : (
-                      hands.map((hand, handIndex) => {
-                        const handTotal = calculateHandTotal(hand.cards);
-                        const isActiveHand =
-                          handIndex === activeIndex && isCurrentTurn && !hand.done;
-
-                        return (
-                          <div
-                            key={`${player.username}-hand-${handIndex}`}
-                            className={`rounded-xl p-3 border ${
-                              isActiveHand
-                                ? "border-yellow-400 bg-yellow-400/10"
-                                : "border-white/10 bg-white/5"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="font-semibold">
-                                Hand {handIndex + 1} · Total {handTotal}
-                              </p>
-                              <div className="text-right text-sm text-white/70">
-                                <p>Main ${hand.bet}</p>
-                                <p>Buster ${hand.busterBet}</p>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2 flex-wrap min-h-[110px]">
-                              {hand.cards.map((card, cardIndex) => (
-                                <Card
-                                  key={`${player.username}-${handIndex}-${card}-${cardIndex}`}
-                                  card={card}
-                                />
-                              ))}
-                            </div>
-
-                            <div className="mt-2 text-sm text-white/75">
-                              {hand.blackjack && <p className="text-emerald-300">Blackjack</p>}
-                              {hand.busted && <p className="text-red-300">Busted</p>}
-                              {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
-                              {hand.doubled && <p className="text-blue-300">Doubled down</p>}
-                              {hand.busterWon && (
-                                <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
-                              )}
-                              {hand.result && (
-                                <p className="text-yellow-300">Result: {hand.result}</p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
-            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Table Info</h2>
-            <div className="space-y-2 text-white/90">
-              <p>Current Turn: {currentTurnPlayer}</p>
-              <p>You: {currentUsername || "..."}</p>
-              <p>Host: {isHost ? "You" : "Another player"}</p>
-              <p>Cards Left In Shoe: {gameState.deck.length}</p>
-              <p>Decks In Shoe: {players.length + 1}</p>
-              <p>Buster: optional $0 or $5</p>
-              <p>Blackjack Pays: 3:2</p>
-              <p>
-                Round:{" "}
-                {gameState.roundStarted
-                  ? gameState.roundFinished
-                    ? gameState.dealerRevealed
-                      ? "Results ready"
-                      : "Waiting for dealer"
-                    : "Active"
-                  : "Not started"}
-              </p>
+                );
+              })}
             </div>
           </div>
 
-          <div className="rounded-3xl bg-black/20 border border-white/10 p-5 space-y-3">
-            <h2 className="text-2xl font-bold text-yellow-300">Actions</h2>
+          {gameState.dealerRevealed && (
+            <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+              <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
+              <div className="grid md:grid-cols-2 gap-2">
+                {results.map((result) => (
+                  <div key={result} className="rounded-xl bg-white/5 p-3">
+                    {result}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
+        <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-4">
+          <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3">
             {isHost && (
               <button
                 onClick={handleStartRound}
                 className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold"
               >
-                Start Round
+                Start
               </button>
             )}
 
@@ -1463,7 +1452,7 @@ export default function GamePage() {
               disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished}
               className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
-              Double Down
+              Double
             </button>
 
             <button
@@ -1487,7 +1476,7 @@ export default function GamePage() {
                 onClick={handleDealerPlay}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold"
               >
-                Run Dealer
+                Dealer
               </button>
             )}
 
@@ -1496,28 +1485,11 @@ export default function GamePage() {
                 onClick={handleEndGame}
                 className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold"
               >
-                End Game
+                End
               </button>
-            )}
-
-            {!isMyTurn && gameState.roundStarted && !gameState.roundFinished && (
-              <p className="text-sm text-yellow-300 text-center">Waiting for current player...</p>
             )}
           </div>
         </div>
-
-        {gameState.dealerRevealed && (
-          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
-            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
-            <div className="grid md:grid-cols-2 gap-2">
-              {results.map((result) => (
-                <div key={result} className="rounded-xl bg-white/5 p-3">
-                  {result}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </main>
   );

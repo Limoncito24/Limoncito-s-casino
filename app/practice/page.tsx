@@ -125,17 +125,17 @@ function getCardColor(card: string) {
 function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   if (hidden) {
     return (
-      <div className="w-16 h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
-        <div className="w-10 h-16 rounded-lg border border-white/30 bg-blue-500/40" />
+      <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-blue-700 border-2 border-white/30 flex items-center justify-center shadow-lg">
+        <div className="w-8 h-12 sm:w-10 sm:h-16 rounded-lg border border-white/30 bg-blue-500/40" />
       </div>
     );
   }
 
   return (
-    <div className="w-16 h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
-      <div className={`text-sm font-bold ${getCardColor(card)}`}>{card}</div>
-      <div className={`text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
-      <div className={`text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
+    <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
+      <div className={`text-xs sm:text-sm font-bold ${getCardColor(card)}`}>{card}</div>
+      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
+      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
     </div>
   );
 }
@@ -630,270 +630,272 @@ export default function PracticePage() {
   }, [state.dealerRevealed, state.playerHands]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="rounded-3xl border border-yellow-400/20 bg-black/20 p-5">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-4xl font-bold text-yellow-300">Practice Table</h1>
-              <p className="text-white/75 mt-1">{state.message}</p>
-            </div>
-
-            <div className="flex gap-3">
-              <Link href="/admin" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
-                Admin
-              </Link>
-              <Link href="/lobby" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
-                Multiplayer Lobby
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-6 space-y-8">
-          <div className="text-center space-y-3">
-            <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
-            <p>Total: {dealerVisibleTotal}</p>
-
-            <div className="flex justify-center gap-3 flex-wrap min-h-[110px]">
-              {dealerVisibleCards.length === 0 ? (
-                <p className="text-white/70">No dealer cards yet</p>
-              ) : (
-                dealerVisibleCards.map((card, index) =>
-                  card === "HIDDEN" ? (
-                    <Card key={`hidden-${index}`} card="??" hidden />
-                  ) : (
-                    <Card key={`${card}-${index}`} card={card} />
-                  )
-                )
-              )}
-            </div>
-          </div>
-
-          <div className="max-w-3xl mx-auto rounded-2xl p-4 border border-yellow-400 bg-yellow-400/10">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+    <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
+      <div className="h-full max-w-5xl mx-auto flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-40">
+          <div className="rounded-3xl border border-yellow-400/20 bg-black/20 p-5">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <p className="font-bold text-lg">You</p>
-                <p className="text-sm text-yellow-300">Bankroll: ${state.bankroll}</p>
+                <h1 className="text-4xl font-bold text-yellow-300">Practice Table</h1>
+                <p className="text-white/75 mt-1">{state.message}</p>
               </div>
 
-              {(!state.roundStarted || state.dealerRevealed) && (
-                <div className="w-full sm:w-auto space-y-3">
-                  <div>
-                    <label className="text-sm text-white/70 block mb-2">Main Bet</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setState((prev) => ({
-                            ...prev,
-                            betInput: Math.max(1, prev.betInput - 5),
-                            confirmedBet: false,
-                          }))
-                        }
-                        className="px-4 py-3 rounded-lg bg-white/10 text-white"
-                      >
-                        -5
-                      </button>
+              <div className="flex gap-3">
+                <Link href="/admin" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
+                  Admin
+                </Link>
+                <Link href="/lobby" className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl">
+                  Multiplayer Lobby
+                </Link>
+              </div>
+            </div>
+          </div>
 
-                      <div className="w-full sm:w-32 rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
-                        ${state.betInput}
-                      </div>
+          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
+              <p>Total: {dealerVisibleTotal}</p>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setState((prev) => ({
-                            ...prev,
-                            betInput: prev.betInput + 5,
-                            confirmedBet: false,
-                          }))
-                        }
-                        className="px-4 py-3 rounded-lg bg-white/10 text-white"
-                      >
-                        +5
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-white/70 block mb-2">Buster Bet</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setState((prev) => ({
-                            ...prev,
-                            busterBetInput: 0,
-                            confirmedBet: false,
-                          }))
-                        }
-                        className={`py-3 rounded-lg font-semibold ${
-                          state.busterBetInput === 0
-                            ? "bg-gray-300 text-black"
-                            : "bg-white/10 text-white"
-                        }`}
-                      >
-                        No Buster
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setState((prev) => ({
-                            ...prev,
-                            busterBetInput: 5,
-                            confirmedBet: false,
-                          }))
-                        }
-                        className={`py-3 rounded-lg font-semibold ${
-                          state.busterBetInput === 5
-                            ? "bg-pink-400 text-black"
-                            : "bg-white/10 text-white"
-                        }`}
-                      >
-                        $5 Buster
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={saveBet}
-                    className={`w-full py-3 rounded-lg font-semibold ${
-                      state.confirmedBet ? "bg-green-400 text-black" : "bg-yellow-400 text-black"
-                    }`}
-                  >
-                    {state.confirmedBet ? "Bet Confirmed" : "Confirm Bet"}
-                  </button>
-                </div>
-              )}
+              <div className="flex justify-center gap-2 sm:gap-3 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                {dealerVisibleCards.length === 0 ? (
+                  <p className="text-white/70">No dealer cards yet</p>
+                ) : (
+                  dealerVisibleCards.map((card, index) =>
+                    card === "HIDDEN" ? (
+                      <Card key={`hidden-${index}`} card="??" hidden />
+                    ) : (
+                      <Card key={`${card}-${index}`} card={card} />
+                    )
+                  )
+                )}
+              </div>
             </div>
 
-            <div className="space-y-3">
-              {state.playerHands.length === 0 ? (
-                <p className="text-white/60">No cards yet</p>
-              ) : (
-                state.playerHands.map((hand, index) => {
-                  const handTotal = calculateHandTotal(hand.cards);
-                  const isActive =
-                    index === state.activeHandIndex && !hand.done && !state.dealerRevealed;
+            <div className="max-w-3xl mx-auto rounded-2xl p-4 border border-yellow-400 bg-yellow-400/10">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+                <div>
+                  <p className="font-bold text-lg">You</p>
+                  <p className="text-sm text-yellow-300">Bankroll: ${state.bankroll}</p>
+                </div>
 
-                  return (
-                    <div
-                      key={`hand-${index}`}
-                      className={`rounded-xl p-3 border ${
-                        isActive
-                          ? "border-yellow-400 bg-yellow-400/10"
-                          : "border-white/10 bg-white/5"
+                {(!state.roundStarted || state.dealerRevealed) && (
+                  <div className="w-full sm:w-auto space-y-3">
+                    <div>
+                      <label className="text-sm text-white/70 block mb-2">Main Bet</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setState((prev) => ({
+                              ...prev,
+                              betInput: Math.max(1, prev.betInput - 5),
+                              confirmedBet: false,
+                            }))
+                          }
+                          className="px-4 py-3 rounded-lg bg-white/10 text-white"
+                        >
+                          -5
+                        </button>
+
+                        <div className="w-full sm:w-32 rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
+                          ${state.betInput}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setState((prev) => ({
+                              ...prev,
+                              betInput: prev.betInput + 5,
+                              confirmedBet: false,
+                            }))
+                          }
+                          className="px-4 py-3 rounded-lg bg-white/10 text-white"
+                        >
+                          +5
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-white/70 block mb-2">Buster Bet</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setState((prev) => ({
+                              ...prev,
+                              busterBetInput: 0,
+                              confirmedBet: false,
+                            }))
+                          }
+                          className={`py-3 rounded-lg font-semibold ${
+                            state.busterBetInput === 0
+                              ? "bg-gray-300 text-black"
+                              : "bg-white/10 text-white"
+                          }`}
+                        >
+                          No Buster
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setState((prev) => ({
+                              ...prev,
+                              busterBetInput: 5,
+                              confirmedBet: false,
+                            }))
+                          }
+                          className={`py-3 rounded-lg font-semibold ${
+                            state.busterBetInput === 5
+                              ? "bg-pink-400 text-black"
+                              : "bg-white/10 text-white"
+                          }`}
+                        >
+                          $5 Buster
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={saveBet}
+                      className={`w-full py-3 rounded-lg font-semibold ${
+                        state.confirmedBet ? "bg-green-400 text-black" : "bg-yellow-400 text-black"
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="font-semibold">
-                          Hand {index + 1} · Total {handTotal}
-                        </p>
-                        <div className="text-right text-sm text-white/70">
-                          <p>Main ${hand.bet}</p>
-                          <p>Buster ${hand.busterBet}</p>
+                      {state.confirmedBet ? "Bet Confirmed" : "Confirm Bet"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {state.playerHands.length === 0 ? (
+                  <p className="text-white/60">No cards yet</p>
+                ) : (
+                  state.playerHands.map((hand, index) => {
+                    const handTotal = calculateHandTotal(hand.cards);
+                    const isActive =
+                      index === state.activeHandIndex && !hand.done && !state.dealerRevealed;
+
+                    return (
+                      <div
+                        key={`hand-${index}`}
+                        className={`rounded-xl p-3 border ${
+                          isActive
+                            ? "border-yellow-400 bg-yellow-400/10"
+                            : "border-white/10 bg-white/5"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="font-semibold">
+                            Hand {index + 1} · Total {handTotal}
+                          </p>
+                          <div className="text-right text-sm text-white/70">
+                            <p>Main ${hand.bet}</p>
+                            <p>Buster ${hand.busterBet}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                          {hand.cards.map((card, cardIndex) => (
+                            <Card key={`${index}-${card}-${cardIndex}`} card={card} />
+                          ))}
+                        </div>
+
+                        <div className="mt-2 text-sm text-white/75">
+                          {hand.blackjack && <p className="text-emerald-300">Blackjack</p>}
+                          {hand.busted && <p className="text-red-300">Busted</p>}
+                          {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
+                          {hand.doubled && <p className="text-blue-300">Doubled down</p>}
+                          {hand.busterWon && (
+                            <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
+                          )}
+                          {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
                         </div>
                       </div>
-
-                      <div className="flex gap-2 flex-wrap min-h-[110px]">
-                        {hand.cards.map((card, cardIndex) => (
-                          <Card key={`${index}-${card}-${cardIndex}`} card={card} />
-                        ))}
-                      </div>
-
-                      <div className="mt-2 text-sm text-white/75">
-                        {hand.blackjack && <p className="text-emerald-300">Blackjack</p>}
-                        {hand.busted && <p className="text-red-300">Busted</p>}
-                        {hand.surrendered && <p className="text-orange-300">Surrendered</p>}
-                        {hand.doubled && <p className="text-blue-300">Doubled down</p>}
-                        {hand.busterWon && (
-                          <p className="text-pink-300">Buster won: +${hand.busterPayout}</p>
-                        )}
-                        {hand.result && <p className="text-yellow-300">Result: {hand.result}</p>}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="rounded-3xl bg-black/20 border border-white/10 p-5 space-y-3 max-w-sm mx-auto">
-          <h2 className="text-2xl font-bold text-yellow-300">Actions</h2>
-
-          <button
-            onClick={startRound}
-            disabled={state.roundStarted && !state.roundFinished}
-            className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Start Round
-          </button>
-
-          <button
-            onClick={hit}
-            disabled={!canAct}
-            className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Hit
-          </button>
-
-          <button
-            onClick={stand}
-            disabled={!canAct}
-            className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Stand
-          </button>
-
-          <button
-            onClick={doubleDown}
-            disabled={!canAct}
-            className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Double Down
-          </button>
-
-          <button
-            onClick={surrender}
-            disabled={!canAct}
-            className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Surrender
-          </button>
-
-          <button
-            onClick={splitHand}
-            disabled={!canSplit}
-            className="w-full bg-pink-600 hover:bg-pink-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Split
-          </button>
-
-          <button
-            onClick={() => settleRound()}
-            disabled={!state.roundFinished || state.dealerRevealed}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            Run Dealer
-          </button>
-        </div>
-
-        {state.dealerRevealed && (
-          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
-            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
-            <div className="grid md:grid-cols-2 gap-2">
-              {results.map((result) => (
-                <div key={result} className="rounded-xl bg-white/5 p-3">
-                  {result}
-                </div>
-              ))}
+          {state.dealerRevealed && (
+            <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+              <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
+              <div className="grid md:grid-cols-2 gap-2">
+                {results.map((result) => (
+                  <div key={result} className="rounded-xl bg-white/5 p-3">
+                    {result}
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-4">
+          <div className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            <button
+              onClick={startRound}
+              disabled={state.roundStarted && !state.roundFinished}
+              className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Start
+            </button>
+
+            <button
+              onClick={hit}
+              disabled={!canAct}
+              className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Hit
+            </button>
+
+            <button
+              onClick={stand}
+              disabled={!canAct}
+              className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Stand
+            </button>
+
+            <button
+              onClick={doubleDown}
+              disabled={!canAct}
+              className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Double
+            </button>
+
+            <button
+              onClick={surrender}
+              disabled={!canAct}
+              className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Surrender
+            </button>
+
+            <button
+              onClick={splitHand}
+              disabled={!canSplit}
+              className="w-full bg-pink-600 hover:bg-pink-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Split
+            </button>
+
+            <button
+              onClick={() => settleRound()}
+              disabled={!state.roundFinished || state.dealerRevealed}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-semibold disabled:opacity-50"
+            >
+              Dealer
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </main>
   );
