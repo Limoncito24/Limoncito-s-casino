@@ -144,10 +144,7 @@ function canSplitRanks(cardA: string, cardB: string) {
   const rankB = getCardRank(cardB);
   const tenValue = ["10", "J", "Q", "K"];
 
-  if (tenValue.includes(rankA) && tenValue.includes(rankB)) {
-    return true;
-  }
-
+  if (tenValue.includes(rankA) && tenValue.includes(rankB)) return true;
   return rankA === rankB;
 }
 
@@ -177,12 +174,8 @@ function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   return (
     <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
       <div className={`text-xs sm:text-sm font-bold ${getCardColor(card)}`}>{card}</div>
-      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>
-        {getCardSuit(card)}
-      </div>
-      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>
-        {card}
-      </div>
+      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
+      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
     </div>
   );
 }
@@ -426,10 +419,6 @@ export default function GamePage() {
     };
   }
 
-  function allPlayersConfirmed() {
-    return players.every((player) => confirmedBets[player.username]);
-  }
-
   async function handleConfirmBet(username: string) {
     const rawBet = Number(betInputs[username] ?? 100);
     const rawBuster = Number(busterInputs[username] ?? 0);
@@ -613,9 +602,7 @@ export default function GamePage() {
         .eq("username", username)
         .single<PlayerStatRow>();
 
-      if (statsError || !currentStats) {
-        continue;
-      }
+      if (statsError || !currentStats) continue;
 
       statsPromises.push(
         (async () => {
@@ -755,11 +742,6 @@ export default function GamePage() {
       return;
     }
 
-    if (!allPlayersConfirmed()) {
-      setMessage("All players must confirm their bets before starting.");
-      return;
-    }
-
     const usernames = players.map((p) => p.username);
 
     const { data: latestStats, error: latestStatsError } = await supabase
@@ -769,6 +751,16 @@ export default function GamePage() {
 
     if (latestStatsError || !latestStats) {
       setMessage("Failed to load latest bets.");
+      return;
+    }
+
+    const allConfirmed = players.every((player) => {
+      const stat = latestStats.find((s) => s.username === player.username);
+      return !!stat && Number(stat.pending_bet ?? 0) >= 1;
+    });
+
+    if (!allConfirmed) {
+      setMessage("All players must confirm their bets before starting.");
       return;
     }
 
@@ -1551,7 +1543,6 @@ export default function GamePage() {
               <p>Decks In Shoe: {players.length + 1}</p>
               <p>Buster: optional $0 or $5</p>
               <p>Blackjack Pays: 3:2</p>
-              <p>All Bets Confirmed: {allPlayersConfirmed() ? "Yes" : "No"}</p>
               <p>
                 Round:{" "}
                 {gameState.roundStarted
@@ -1584,7 +1575,7 @@ export default function GamePage() {
             {isHost && (
               <button
                 onClick={handleStartRound}
-                disabled={dealerAnimating || !allPlayersConfirmed()}
+                disabled={dealerAnimating}
                 className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
               >
                 Start
