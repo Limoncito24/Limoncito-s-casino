@@ -372,16 +372,17 @@ export default function GamePage() {
         ...state.activeHandIndex,
         [username]: nextHandIndex,
       };
-      return { nextTurnIndex: currentTurn };
+      return { nextTurnIndex: currentTurn, roundFinished: false };
     }
 
     if (areAllPlayersDone(state)) {
       state.roundFinished = true;
-      return { nextTurnIndex: currentTurn };
+      return { nextTurnIndex: currentTurn, roundFinished: true };
     }
 
     return {
       nextTurnIndex: getNextActiveTurnIndex(currentTurn, state),
+      roundFinished: false,
     };
   }
 
@@ -1165,7 +1166,7 @@ export default function GamePage() {
   return (
     <main className="h-screen overflow-hidden bg-gradient-to-b from-green-950 via-green-900 to-green-950 text-white">
       <div className="h-full max-w-6xl mx-auto flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-40">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-36">
           <div className="rounded-3xl border border-yellow-400/20 bg-black/20 backdrop-blur p-5">
             <h1 className="text-3xl sm:text-4xl font-bold text-center text-yellow-300">
               Blackjack Table
@@ -1174,12 +1175,12 @@ export default function GamePage() {
             <p className="text-center text-white/80 mt-1">{message}</p>
           </div>
 
-          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-6">
+          <div className="rounded-[32px] border-4 border-yellow-700 bg-green-800 shadow-2xl p-4 sm:p-6 space-y-8">
             <div className="text-center space-y-3">
               <h2 className="text-2xl font-bold text-yellow-300">Dealer</h2>
               <p>Total: {dealerVisibleTotal}</p>
 
-              <div className="flex justify-center gap-2 sm:gap-3 flex-wrap min-h-[96px] sm:min-h-[110px]">
+              <div className="flex justify-center gap-3 flex-wrap min-h-[110px]">
                 {dealerVisibleCards.length === 0 ? (
                   <p className="text-white/70">No dealer cards yet</p>
                 ) : (
@@ -1374,7 +1375,7 @@ export default function GamePage() {
                                 </div>
                               </div>
 
-                              <div className="flex gap-2 flex-wrap min-h-[96px] sm:min-h-[110px]">
+                              <div className="flex gap-2 flex-wrap min-h-[90px] sm:min-h-[110px]">
                                 {hand.cards.map((card, cardIndex) => (
                                   <Card
                                     key={`${player.username}-${handIndex}-${card}-${cardIndex}`}
@@ -1406,6 +1407,29 @@ export default function GamePage() {
             </div>
           </div>
 
+          <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
+            <h2 className="text-2xl font-bold text-yellow-300 mb-3">Table Info</h2>
+            <div className="space-y-2 text-white/90">
+              <p>Current Turn: {currentTurnPlayer}</p>
+              <p>You: {currentUsername || "..."}</p>
+              <p>Host: {isHost ? "You" : "Another player"}</p>
+              <p>Cards Left In Shoe: {gameState.deck.length}</p>
+              <p>Decks In Shoe: {players.length + 1}</p>
+              <p>Buster: optional $0 or $5</p>
+              <p>Blackjack Pays: 3:2</p>
+              <p>
+                Round:{" "}
+                {gameState.roundStarted
+                  ? gameState.roundFinished
+                    ? gameState.dealerRevealed
+                      ? "Results ready"
+                      : "Waiting for dealer"
+                    : "Active"
+                  : "Not started"}
+              </p>
+            </div>
+          </div>
+
           {gameState.dealerRevealed && (
             <div className="rounded-3xl bg-black/20 border border-white/10 p-5">
               <h2 className="text-2xl font-bold text-yellow-300 mb-3">Results</h2>
@@ -1421,7 +1445,7 @@ export default function GamePage() {
         </div>
 
         <div className="border-t border-white/10 bg-black/40 backdrop-blur-md p-4">
-          <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3">
+          <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {isHost && (
               <button
                 onClick={handleStartRound}
@@ -1485,7 +1509,7 @@ export default function GamePage() {
                 onClick={handleEndGame}
                 className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-semibold"
               >
-                End
+                End Game
               </button>
             )}
           </div>
