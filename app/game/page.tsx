@@ -44,6 +44,7 @@ type GameState = {
 };
 
 type PlayerStatRow = {
+  user_id?: string;
   username: string;
   bankroll: number | null;
   hands_played: number | null;
@@ -176,8 +177,12 @@ function Card({ card, hidden = false }: { card: string; hidden?: boolean }) {
   return (
     <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-white border-2 border-gray-300 shadow-lg p-2 flex flex-col justify-between">
       <div className={`text-xs sm:text-sm font-bold ${getCardColor(card)}`}>{card}</div>
-      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>{getCardSuit(card)}</div>
-      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>{card}</div>
+      <div className={`text-xl sm:text-2xl text-center ${getCardColor(card)}`}>
+        {getCardSuit(card)}
+      </div>
+      <div className={`text-xs sm:text-sm font-bold rotate-180 self-end ${getCardColor(card)}`}>
+        {card}
+      </div>
     </div>
   );
 }
@@ -421,9 +426,16 @@ export default function GamePage() {
     };
   }
 
+  function allPlayersConfirmed() {
+    return players.every((player) => confirmedBets[player.username]);
+  }
+
   async function handleConfirmBet(username: string) {
-    const mainBet = betInputs[username] ?? 100;
-    const busterBet = busterInputs[username] ?? 0;
+    const rawBet = Number(betInputs[username] ?? 100);
+    const rawBuster = Number(busterInputs[username] ?? 0);
+
+    const mainBet = Math.max(1, Math.floor(rawBet));
+    const busterBet = rawBuster >= 5 ? 5 : 0;
 
     const { error } = await supabase
       .from("player_stats")
@@ -437,6 +449,16 @@ export default function GamePage() {
       setMessage("Failed to save bet.");
       return;
     }
+
+    setBetInputs((prev) => ({
+      ...prev,
+      [username]: mainBet,
+    }));
+
+    setBusterInputs((prev) => ({
+      ...prev,
+      [username]: busterBet,
+    }));
 
     setConfirmedBets((prev) => ({
       ...prev,
@@ -733,6 +755,11 @@ export default function GamePage() {
       return;
     }
 
+    if (!allPlayersConfirmed()) {
+      setMessage("All players must confirm their bets before starting.");
+      return;
+    }
+
     const usernames = players.map((p) => p.username);
 
     const { data: latestStats, error: latestStatsError } = await supabase
@@ -784,6 +811,7 @@ export default function GamePage() {
           busterPayout: 0,
         },
       ];
+
       activeHandIndex[player.username] = 0;
     }
 
@@ -829,7 +857,9 @@ export default function GamePage() {
   }
 
   async function handleHit() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) {
+      return;
+    }
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -905,7 +935,9 @@ export default function GamePage() {
   }
 
   async function handleStand() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) {
+      return;
+    }
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -957,7 +989,9 @@ export default function GamePage() {
   }
 
   async function handleDoubleDown() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) {
+      return;
+    }
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -1031,7 +1065,9 @@ export default function GamePage() {
   }
 
   async function handleSurrender() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) {
+      return;
+    }
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -1083,7 +1119,9 @@ export default function GamePage() {
   }
 
   async function handleSplit() {
-    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) return;
+    if (!currentLobbyId || !gameState.roundStarted || gameState.roundFinished || gameState.dealerAnimating) {
+      return;
+    }
 
     const currentTurnPlayer = players[turnIndex]?.username;
     if (!currentTurnPlayer || currentUsername !== currentTurnPlayer) {
@@ -1214,7 +1252,9 @@ export default function GamePage() {
         : 0;
 
   const canSplitActiveHand = (() => {
-    if (!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating) return false;
+    if (!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating) {
+      return false;
+    }
     const { hand } = getCurrentHand(currentUsername);
     if (!hand || hand.done || hand.doubled || hand.cards.length !== 2) return false;
     if (!canSplitRanks(hand.cards[0], hand.cards[1])) return false;
@@ -1276,6 +1316,7 @@ export default function GamePage() {
 
                 const canEditBets =
                   !gameState.betsLocked &&
+                  !dealerAnimating &&
                   player.username.trim().toLowerCase() === currentUsername.trim().toLowerCase();
 
                 return (
@@ -1307,13 +1348,17 @@ export default function GamePage() {
                       <div className="mb-3 space-y-3">
                         <div>
                           <label className="text-sm text-white/70 block mb-2">Main Bet</label>
-                          <div className="flex gap-2">
+
+                          <div className="grid grid-cols-[72px_1fr_72px] gap-2">
                             <button
                               type="button"
                               onClick={() => {
                                 setBetInputs((prev) => ({
                                   ...prev,
-                                  [player.username]: Math.max(1, (prev[player.username] ?? 100) - 5),
+                                  [player.username]: Math.max(
+                                    1,
+                                    Number(prev[player.username] ?? 100) - 5
+                                  ),
                                 }));
                                 setConfirmedBets((prev) => ({
                                   ...prev,
@@ -1321,21 +1366,22 @@ export default function GamePage() {
                                 }));
                               }}
                               disabled={!canEditBets}
-                              className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                              className="px-3 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                             >
                               -5
                             </button>
 
-                            <div className="w-full rounded-lg px-3 py-3 bg-white text-black text-lg text-center font-semibold">
-                              ${betInputs[player.username] ?? 100}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => {
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              step={1}
+                              value={betInputs[player.username] ?? 100}
+                              onChange={(e) => {
+                                const value = Math.max(1, Number(e.target.value || 1));
                                 setBetInputs((prev) => ({
                                   ...prev,
-                                  [player.username]: (prev[player.username] ?? 100) + 5,
+                                  [player.username]: value,
                                 }));
                                 setConfirmedBets((prev) => ({
                                   ...prev,
@@ -1343,7 +1389,23 @@ export default function GamePage() {
                                 }));
                               }}
                               disabled={!canEditBets}
-                              className="px-4 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
+                              className="w-full rounded-lg px-3 py-3 bg-white text-black text-center text-lg font-semibold disabled:opacity-50"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBetInputs((prev) => ({
+                                  ...prev,
+                                  [player.username]: Number(prev[player.username] ?? 100) + 5,
+                                }));
+                                setConfirmedBets((prev) => ({
+                                  ...prev,
+                                  [player.username]: false,
+                                }));
+                              }}
+                              disabled={!canEditBets}
+                              className="px-3 py-3 rounded-lg bg-white/10 text-white disabled:opacity-50"
                             >
                               +5
                             </button>
@@ -1489,6 +1551,7 @@ export default function GamePage() {
               <p>Decks In Shoe: {players.length + 1}</p>
               <p>Buster: optional $0 or $5</p>
               <p>Blackjack Pays: 3:2</p>
+              <p>All Bets Confirmed: {allPlayersConfirmed() ? "Yes" : "No"}</p>
               <p>
                 Round:{" "}
                 {gameState.roundStarted
@@ -1521,7 +1584,7 @@ export default function GamePage() {
             {isHost && (
               <button
                 onClick={handleStartRound}
-                disabled={dealerAnimating}
+                disabled={dealerAnimating || !allPlayersConfirmed()}
                 className="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold disabled:opacity-50"
               >
                 Start
@@ -1530,7 +1593,12 @@ export default function GamePage() {
 
             <button
               onClick={handleHit}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
+              disabled={
+                !isMyTurn ||
+                !gameState.roundStarted ||
+                gameState.roundFinished ||
+                dealerAnimating
+              }
               className="w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Hit
@@ -1538,7 +1606,12 @@ export default function GamePage() {
 
             <button
               onClick={handleStand}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
+              disabled={
+                !isMyTurn ||
+                !gameState.roundStarted ||
+                gameState.roundFinished ||
+                dealerAnimating
+              }
               className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Stand
@@ -1546,7 +1619,12 @@ export default function GamePage() {
 
             <button
               onClick={handleDoubleDown}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
+              disabled={
+                !isMyTurn ||
+                !gameState.roundStarted ||
+                gameState.roundFinished ||
+                dealerAnimating
+              }
               className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Double
@@ -1554,7 +1632,12 @@ export default function GamePage() {
 
             <button
               onClick={handleSurrender}
-              disabled={!isMyTurn || !gameState.roundStarted || gameState.roundFinished || dealerAnimating}
+              disabled={
+                !isMyTurn ||
+                !gameState.roundStarted ||
+                gameState.roundFinished ||
+                dealerAnimating
+              }
               className="w-full bg-orange-600 hover:bg-orange-500 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
               Surrender
